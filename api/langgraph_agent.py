@@ -10,9 +10,11 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph.message import add_messages
 from langgraph.graph import StateGraph, END
 from typing import TypedDict, Annotated
+from dotenv import load_dotenv
+
 
 from prompts import LLM_PROMPT
-from tools import run_tavily_search
+from tools import tavily_tool
 
 # ----------------------------------------
 # Agent State Definition
@@ -21,7 +23,7 @@ from tools import run_tavily_search
 class AgentState(TypedDict):
     query: str
     current_messages: Annotated[List[BaseMessage], add_messages]
-    memory: List[BaseMessage]
+    agent_memory: List[BaseMessage]
     context: Dict[str, Any]
     response: str
 
@@ -30,63 +32,81 @@ class AgentState(TypedDict):
 # ----------------------------------------
 
 class LangGraphAgent():
-    def __init__(self, api_keys: Dict[str, str]):
+    def __init__(self):
 
         self.agent_graph = None
         self.model = None
         self.tool_belt = None
-        self.memory = []
+        self.agent_memory = []
+        self.count = 0
+        # Automatically loads variables from .env file into os.environ
+        load_dotenv()
 
-        os.environ["OPENAI_API_KEY"] = api_keys['OPENAI_API_KEY']
-        os.environ["TAVILY_API_KEY"] = api_keys['TAVILY_API_KEY']
-        os.environ["LANGCHAIN_API_KEY"] = api_keys['LANGCHAIN_API_KEY']
-        os.environ["LANGCHAIN_TRACING_V2"] = "true"
-        os.environ["LANGCHAIN_PROJECT"] = f"AIM-CERT-{uuid4().hex[0:8]}"
+        assert os.getenv("OPENAI_API_KEY"), "Missing OPENAI_API_KEY"
+        assert os.getenv("TAVILY_API_KEY"), "Missing TAVILY_API_KEY"
+        assert os.getenv("LANGCHAIN_API_KEY"), "Missing LANGCHAIN_API_KEY"
 
-        self._initialization(api_keys)
+        #os.environ["LANGCHAIN_TRACING_V2"] = "true"
+        #os.environ["LANGCHAIN_PROJECT"] = f"AIM-CERT-{uuid4().hex[0:8]}"
+
+        self._initialization()
 
 
     def _call_model(self, state: AgentState):
         """Generate reasoning output using context + prior messages"""
 
+        # SAFELY get context, agent_memory, query, current_messages
+        context = state.get("context", {})
+        agent_memory = state.get("agent_memory", [])
+        query = state.get("query", "")
+        current = state.get("current_messages", [])
+
         # Flatten the context from tools into a single string
         flat_context = "\n\n".join(
-            f"{k.capitalize()} Result:\n{v}" for k, v in state["context"].items() if v
+            f"{k.capitalize()} Result:\n{v}" for k, v in context.items() if v
         ).strip()
 
         # Format the prompt with the context and the question
         prompt_text = LLM_PROMPT.format(
             context=flat_context or "No context available.",
-            question=state["query"]
+            question=query
         )
 
         sys_msg = SystemMessage(content=prompt_text)
 
-        # Combine the current messages with the memory: could use messages = [sys_msg] + state["memory"][-3:] + state["current_messages"] later
-        messages = messages = [sys_msg] + state["current_messages"] + state["memory"][-3:]
+        # Combine messages: last 3 from agent_memory + current messages
+        if len(agent_memory) >= 3:
+            messages = [sys_msg] + current + agent_memory[-3:]
+        else:
+            messages = [sys_msg] + current + agent_memory
 
         if self.model:
             response = self.model.invoke(messages)
             return {
+                **state,  # propagate all values, including agent_memory
                 "current_messages": [response],
-                "response": response.content
+                "response": response.content,
+                "agent_memory": state.get("agent_memory", []) 
             }
         else:
             raise HTTPException(status_code=500, detail="Model not initialized")
 
 
+
     def _should_continue(self, state: AgentState):
-        last_message = state["current_messages"][-1]
-        if hasattr(last_message, "tool_calls") and last_message.tool_calls:
+        current = state.get("current_messages", [])
+        last_message = current[-1] if current else None
+
+        if last_message and hasattr(last_message, "tool_calls") and last_message.tool_calls:
             return "search"
         return END
 
 
-    def _initialization(self, api_keys: Dict[str, str]):
+    def _initialization(self):
         """Initialize model and graph"""
         try:
-            self.tool_belt = [run_tavily_search]
-            self.model = ChatOpenAI(model="gpt-4.1-mini", temperature=0).bind_tools(self.tool_belt)
+            self.tool_belt = [tavily_tool]
+            self.model = ChatOpenAI(model="gpt-4.1-mini", temperature=0.7).bind_tools(self.tool_belt)
 
             graph = StateGraph(AgentState, name="companion-agent-graph")
             graph.add_node("agent", self._call_model)
@@ -103,22 +123,34 @@ class LangGraphAgent():
 
 
     def _search_node(self, state: AgentState):
-        """Explicit node to run Tavily and store result"""
-        query = state["query"]
-        search_result = run_tavily_search.invoke(query)
+        query = state.get("query", "")
+        search_result = tavily_tool.invoke(query)
 
-        state["context"]["search"] = search_result
+        updated_context = state.get("context", {}).copy()
+        updated_context["search"] = search_result
 
-        tool_message = ToolMessage(
-            tool_call_id="tavily_search",
-            content=search_result
-        )
+        last_message = state.get("current_messages", [])[-1]
+
+        tool_calls = getattr(last_message, "tool_calls", [])
+
+        if not tool_calls:
+            raise HTTPException(status_code=500, detail="Tool was expected to be called, but no tool_calls found.")
+
+        # Create a ToolMessage for every tool_call ID (you could have >1 in a future case)
+        tool_messages = [
+            ToolMessage(
+                tool_call_id=call["id"],  # ID from the assistant's tool_call
+                content=search_result     # You can refine this per tool call if needed
+            )
+            for call in tool_calls
+        ]
 
         return {
-            "current_messages": [tool_message],
-            "context": state["context"]
+            **state,
+            "current_messages": tool_messages,
+            "context": updated_context,
+            "memory": state.get("memory", [])
         }
-
 
     async def chat(self, user_message: str):
         """Chat loop entrypoint"""
@@ -126,7 +158,7 @@ class LangGraphAgent():
             inputs: AgentState = {
                 "query": user_message,
                 "current_messages": [HumanMessage(content=user_message)],
-                "memory": self.memory,
+                "agent_memory": self.agent_memory,
                 "context": {},
                 "response": ""
             }
@@ -145,8 +177,8 @@ class LangGraphAgent():
                         if "tool_calls" in values:
                             tool_calls.extend(values["tool_calls"])
 
-            # Append this ReAct interaction to long-term memory
-            self.memory.extend(final_current_messages)
+            # Append this ReAct interaction to long-term agent_memory
+            self.agent_memory.extend(final_current_messages)
 
             return {
                 "response": final_response or "I apologize, but I couldn't generate a response.",
