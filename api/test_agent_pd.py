@@ -5,7 +5,7 @@ import asyncio
 # Entry point
 async def main():
     agent = LangGraphAgent()
-    user_message = "what was the weather in Tokyo on 7/30/2025?"
+    user_message = "what are good kid tamtrum managing techniques in 2025?"
 
     reply = await agent.chat(user_message)
 
@@ -13,7 +13,7 @@ async def main():
     print(f"\n\nResponce: {reply['response']}")
     print(f"\n\nNum tool calls: {reply['metadata']['total_tool_calls']}\n\n")
 
-    user_message = "what is the forecast for tomorrow for the city we were just chatting about?"
+    user_message = "any difference with techniques from the previous year"
 
     reply = await agent.chat(user_message)
 

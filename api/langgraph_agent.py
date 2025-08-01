@@ -77,6 +77,10 @@ class LangGraphAgent():
         # Combine messages: last 3 from agent_memory + current messages
         if len(agent_memory) >= 3:
             messages = [sys_msg] + current + agent_memory[-3:]
+        elif len(agent_memory) >= 2:
+            messages = [sys_msg] + current + agent_memory[-2:]
+        elif len(agent_memory) >= 1:
+            messages = [sys_msg] + current + agent_memory[-1:]
         else:
             messages = [sys_msg] + current + agent_memory
 
@@ -152,6 +156,8 @@ class LangGraphAgent():
             "memory": state.get("memory", [])
         }
 
+    from langchain_core.messages import HumanMessage, BaseMessage
+
     async def chat(self, user_message: str):
         """Chat loop entrypoint"""
         try:
@@ -171,13 +177,15 @@ class LangGraphAgent():
                 async for chunk in self.agent_graph.astream(inputs, stream_mode="updates"):
                     for node, values in chunk.items():
                         if "current_messages" in values:
-                            final_current_messages.extend(values["current_messages"])  # Keep for this loop only
+                            for msg in values["current_messages"]:
+                                final_current_messages.append(msg)
+                                # Extract tool calls if they exist in AssistantMessage
+                                if hasattr(msg, "tool_calls") and msg.tool_calls:
+                                    tool_calls.extend(msg.tool_calls)
                         if "response" in values:
                             final_response = values["response"]
-                        if "tool_calls" in values:
-                            tool_calls.extend(values["tool_calls"])
 
-            # Append this ReAct interaction to long-term agent_memory
+            # Append ReAct interaction to long-term agent memory
             self.agent_memory.extend(final_current_messages)
 
             return {
@@ -192,6 +200,10 @@ class LangGraphAgent():
                 },
                 "status": "success"
             }
+
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to generate response: {str(e)}")
+
 
         except Exception as e:
             print(f"Error in chat method: {str(e)}")
