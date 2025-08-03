@@ -42,7 +42,7 @@ class AgentState(TypedDict):
 # ----------------------------------------
 
 class LangGraphAgent():
-    def __init__(self, retriever_mode: RetrievalEnums, MODE: str):
+    def __init__(self, retriever_mode: RetrievalEnums, MODE: str, langchain_project_name: str):
 
         self.agent_graph = None
         self.react_model = None
@@ -70,7 +70,7 @@ class LangGraphAgent():
         assert os.getenv("COHERE_API_KEY"), "Missing COHERE_API_KEY"
 
         os.environ["LANGCHAIN_TRACING_V2"] = "true"
-        os.environ["LANGCHAIN_PROJECT"] = f"AIM-CERT-{uuid4().hex[0:8]}"
+        os.environ["LANGCHAIN_PROJECT"] = langchain_project_name #f"AIM-CERT-{uuid4().hex[0:8]}"
 
         self._initialization()
 

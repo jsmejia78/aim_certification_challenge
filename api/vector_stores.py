@@ -16,13 +16,16 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 class VectorStoresManager():
     def __init__(self, MODE:str, 
                 loaded_data, 
-                embeddings_model = "text-embedding-3-small", 
+                chunk_config = {"enabled": True, "params": {"chunk_size": 1000, "chunk_overlap": 250}},
+                embeddings_model_name = "text-embedding-3-small", 
                 chat_model = "gpt-4.1-nano",
                 collection_name = "Rag Loaded Data Baseline"):
 
         self.loaded_data = loaded_data
         self.MODE = MODE
-        self.embeddings = OpenAIEmbeddings(model=embeddings_model)
+        self.chunk_config = chunk_config
+        self.embeddings_model_name = embeddings_model_name
+        self.embeddings_model = OpenAIEmbeddings(model=self.embeddings_model_name)
         self.chat_model = ChatOpenAI(model=chat_model)
         self.vectorstore = None
         self.parent_document_vectorstore = None
@@ -31,12 +34,21 @@ class VectorStoresManager():
 
         if MODE == "baseline":
             # ===============================
-            # Naive Retrieval
+            # Baseline Retrieval
             # ===============================
+            if self.chunk_config["enabled"]:
+                text_splitter = RecursiveCharacterTextSplitter(
+                    chunk_size = self.chunk_config["params"]["chunk_size"],
+                    chunk_overlap = self.chunk_config["params"]["chunk_overlap"]
+                )
+
+                self.loan_data_chunks = text_splitter.split_documents(self.loaded_data)
+            else:
+                self.loan_data_chunks = self.loaded_data
 
             self.vectorstore = Qdrant.from_documents(
-                self.loaded_data,
-                self.embeddings,
+                self.loan_data_chunks,
+                self.embeddings_model,
                 location=":memory:",
                 collection_name="Rag Loaded Data Baseline"
             )
@@ -47,13 +59,14 @@ class VectorStoresManager():
             # ===============================
 
             semantic_chunker = SemanticChunker(
-                self.embeddings,
+                self.embeddings_model,
                 breakpoint_threshold_type="percentile"
             )
-            loan_complaint_data = semantic_chunker.split_documents(loaded_data)
+            semantic_data = semantic_chunker.split_documents(loaded_data)
+            
             semantic_vectorstore = Qdrant.from_documents(
-                loan_complaint_data,
-                self.embeddings,
+                semantic_data,
+                self.embeddings_model,
                 location=":memory:",
                 collection_name="Rag Loaded Data Semantic"
             )
@@ -62,10 +75,11 @@ class VectorStoresManager():
             raise ValueError(f"Invalid mode: {MODE}")
 
         # Create the retriever - parent document retrieval
-        self.parent_docs = loan_complaint_data
-        self.child_splitter = RecursiveCharacterTextSplitter(chunk_size=750)
+        self.parent_docs = self.loaded_data
+        self.child_splitter = RecursiveCharacterTextSplitter(chunk_size=750) # TODO: make this dynamic
 
         self.client_qdrant = QdrantClient(location=":memory:")
+
         self.client_qdrant.create_collection(
             collection_name="full_documents",
             vectors_config=models.VectorParams(size=1536, distance=models.Distance.COSINE)
@@ -73,7 +87,7 @@ class VectorStoresManager():
 
         self.parent_document_vectorstore = QdrantVectorStore(
             collection_name="full_documents", 
-            embedding=OpenAIEmbeddings(model=self.embeddings_model), 
+            embedding=self.embeddings_model, 
             client=self.client_qdrant
         )
 
@@ -91,4 +105,9 @@ class VectorStoresManager():
 
     def get_child_splitter(self):
         return self.child_splitter
-    
+
+    def get_chunked_loaded_data(self):
+        return self.loan_data_chunks
+
+    def get_loaded_data(self):
+        return self.loaded_data
