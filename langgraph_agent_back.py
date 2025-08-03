@@ -10,21 +10,10 @@ from langgraph.graph.message import add_messages
 from langgraph.graph import StateGraph, END
 from typing import TypedDict, Annotated
 from dotenv import load_dotenv
-from enum import Enum
 
-from prompts import SYSTEM_PROMPT, RAG_PROMPT
+
+from prompts import SYSTEM_PROMPT
 from tools import tavily_tool, custom_rag_tool
-from retrievers import get_retrieval_chains_and_wrappers
-from vector_stores import VectorStoresManager
-
-
-class RetrievalEnums(Enum):
-    NAIVE = "naive"
-    BM25 = "bm25"
-    CONTEXTUAL_COMPRESSION = "contextual_compression"
-    MULTI_QUERY = "multi_query"
-    PARENT_DOCUMENT = "parent_document"
-    ENSEMBLE = "ensemble"
 
 # ----------------------------------------
 # Agent State Definition
@@ -42,35 +31,22 @@ class AgentState(TypedDict):
 # ----------------------------------------
 
 class LangGraphAgent():
-    def __init__(self, retriever_mode: RetrievalEnums, MODE: str):
+    def __init__(self):
 
         self.agent_graph = None
-        self.react_model = None
+        self.model = None
         self.tool_belt = None
         self.agent_memory = []
         self.count = 0
-
-        self.retrievers_config = None
-        self.retriever_mode = retriever_mode
-        self.retrieval_llm = None
-        self.rag_prompt = None
-        self.rag_model = None
-        self.retrival_chains = None
-        self.retrival_wrappers = None
-        self.MODE = MODE
-        self.loaded_rag_data = None
-        self.dbs_manager = None
-
         # Automatically loads variables from .env file into os.environ
         load_dotenv()
 
         assert os.getenv("OPENAI_API_KEY"), "Missing OPENAI_API_KEY"
         assert os.getenv("TAVILY_API_KEY"), "Missing TAVILY_API_KEY"
         assert os.getenv("LANGCHAIN_API_KEY"), "Missing LANGCHAIN_API_KEY"
-        assert os.getenv("COHERE_API_KEY"), "Missing COHERE_API_KEY"
 
-        os.environ["LANGCHAIN_TRACING_V2"] = "true"
-        os.environ["LANGCHAIN_PROJECT"] = f"AIM-CERT-{uuid4().hex[0:8]}"
+        #os.environ["LANGCHAIN_TRACING_V2"] = "true"
+        #os.environ["LANGCHAIN_PROJECT"] = f"AIM-CERT-{uuid4().hex[0:8]}"
 
         self._initialization()
 
@@ -87,8 +63,8 @@ class LangGraphAgent():
         else:
             messages =  current + agent_memory
 
-        if self.react_model:
-            response = self.react_model.invoke(messages)
+        if self.model:
+            response = self.model.invoke(messages)
             return {
                 **state,  # propagate all values, including agent_memory
                 "current_messages": [response],
@@ -112,15 +88,14 @@ class LangGraphAgent():
         return END
 
     def _initialization(self):
-        """Initialize models, graph, and dependencies"""
+        """Initialize model and graph"""
         try:
 
             # set up tool belt
             self.tool_belt = [tavily_tool, custom_rag_tool]
 
             # set up model
-            self.react_model = ChatOpenAI(model="gpt-4.1-mini", temperature=0.7).bind_tools(self.tool_belt)
-            self.rag_model = ChatOpenAI(model="gpt-4.1-mini", temperature=0.7)
+            self.model = ChatOpenAI(model="gpt-4.1-mini", temperature=0.7).bind_tools(self.tool_belt)
 
             graph = StateGraph(AgentState, name="companion-agent-graph")
 
@@ -132,33 +107,11 @@ class LangGraphAgent():
             graph.add_conditional_edges("agent", self._should_continue)
             graph.add_edge("search", "agent")
             graph.add_edge("rag", "agent")
-
+            
             self.agent_graph = graph.compile()
 
-            # set up retrievers
-            self.loaded_rag_data = "loaded_rag_data"
-            self.dbs_manager = VectorStoresManager(self.loaded_rag_data)
-            self.retrievers_config = {
-                "base": {
-                    "vectorstore": self.dbs_manager.get_base_vectorstore()
-                },
-                "parent_document": {
-                    "vectorstore": self.dbs_manager.get_parent_document_vectorstore(),
-                    "in_memory_store": self.dbs_manager.get_in_memory_store(),
-                    "child_splitter": self.dbs_manager.get_child_splitter()
-                }
-            }
-
-            # set up retrievers
-            self.retrival_chains, self.retrival_wrappers = get_retrieval_chains_and_wrappers(
-                self.retrievers_config, 
-                self.loaded_rag_data,
-                self.rag_model,
-                self.MODE)
-
         except Exception as e:
-            print(f"Error in initialization: {str(e)}") 
-            raise HTTPException(status_code=500, detail=f"Failed to initialize Agent and dependencies: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to initialize models: {str(e)}")
 
     def _search_node(self, state: AgentState):
         """Search the web for the latest information related to query"""
@@ -193,7 +146,7 @@ class LangGraphAgent():
         """Custom RAG-based search for relevant info."""
 
         query = state.get("query", "")
-        rag_result = custom_rag_tool.invoke(query, self.retrival_wrappers[self.retriever_mode])
+        rag_result = custom_rag_tool.invoke(query)
 
         updated_context = state.get("context", {}).copy()
         updated_context.setdefault("rag", []).append(rag_result)

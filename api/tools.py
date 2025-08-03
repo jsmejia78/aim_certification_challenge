@@ -1,7 +1,8 @@
 import os
-from langchain_core.tools import Tool
+from langchain_core.tools import Tool, tool
 from tavily import TavilyClient
 from dotenv import load_dotenv
+from retrievers import run_retrieval_chain
 
 # Load environment variables
 load_dotenv()
@@ -35,3 +36,16 @@ tavily_tool = Tool.from_function(
     description="Search the web for the latest information related to query"
 )
 
+@tool
+def custom_rag_tool(query: str, retrieval_chain_wrapper) -> str:
+    """Custom RAG-based search for relevant info."""
+
+    result = retrieval_chain_wrapper(query)
+
+    # Extract content for display and logging
+    if isinstance(result, str):
+        return result
+    elif isinstance(result, dict):
+        return result.get("answer", str(result))  # Prefer 'answer' field if it exists
+    else:
+        return str(result)
