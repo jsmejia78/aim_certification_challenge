@@ -139,14 +139,26 @@ class LangGraphAgent():
             data_loader = DataLoader("pd_blogs_filtered")
             self.loaded_rag_data = data_loader.load_data()
 
-            self.dbs_manager = VectorStoresManager(    
-                MODE="baseline",
-                loaded_data=self.loaded_rag_data,
-                chunk_config={"enabled": True, "params": {"chunk_size": 1500, "chunk_overlap": 250}},
-                embeddings_model_name="text-embedding-3-small",
-                chat_model="gpt-4.1-mini",
-                collection_name="Rag Loaded Data"
-            )
+            TEST = "First Naive"
+
+            if TEST == "First Naive":
+                self.dbs_manager = VectorStoresManager(    
+                    MODE="baseline",
+                    loaded_data=self.loaded_rag_data,
+                    chunk_config={"enabled": True, "params": {"chunk_size": 750, "chunk_overlap": 0}},
+                    embeddings_model_name="text-embedding-3-small",
+                    chat_model="gpt-4.1-nano",
+                    collection_name="Rag Loaded Data"
+                 )
+            else:
+                self.dbs_manager = VectorStoresManager(    
+                    MODE="baseline",
+                    loaded_data=self.loaded_rag_data,
+                    chunk_config={"enabled": True, "params": {"chunk_size": 1500, "chunk_overlap": 250}},
+                    embeddings_model_name="text-embedding-3-small",
+                    chat_model="gpt-4.1-mini",
+                    collection_name="Rag Loaded Data"
+                )
 
             self.retrievers_config = {
                 "base": {

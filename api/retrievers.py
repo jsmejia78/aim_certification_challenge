@@ -155,7 +155,7 @@ def get_retrieval_chains_and_wrappers(retrievers_config, loaded_data, chat_model
     child_splitter = retrievers_config["parent_document"]["child_splitter"]
 
     # Create the retriever - base retrieval
-    base_retriever = vectorstore.as_retriever(search_kwargs={"k" : 10})
+    base_retriever = vectorstore.as_retriever(search_kwargs={"k" : 3})
 
     base_retrieval_chain = itemgetter("question") | base_retriever
 
