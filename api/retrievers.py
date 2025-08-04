@@ -157,9 +157,7 @@ def get_retrieval_chains_and_wrappers(retrievers_config, loaded_data, chat_model
     # Create the retriever - base retrieval
     base_retriever = vectorstore.as_retriever(search_kwargs={"k" : 10})
 
-    base_retrieval_chain = (
-        {"context": itemgetter("question") | base_retriever}
-    )
+    base_retrieval_chain = itemgetter("question") | base_retriever
 
     # ===============================
     # BM25 Retrieval
@@ -167,9 +165,7 @@ def get_retrieval_chains_and_wrappers(retrievers_config, loaded_data, chat_model
     # Create the retriever - BM25 retrieval
     bm25_retriever = BM25Retriever.from_documents(loaded_data, )
 
-    bm25_retrieval_chain = (
-        {"context": itemgetter("question") | bm25_retriever}
-    )
+    bm25_retrieval_chain =  itemgetter("question") | bm25_retriever
 
     # ===============================
     # Contextual Compression Retrieval
@@ -180,9 +176,7 @@ def get_retrieval_chains_and_wrappers(retrievers_config, loaded_data, chat_model
         base_compressor=compressor, base_retriever=base_retriever
     )
 
-    contextual_compression_retrieval_chain = (
-        {"context": itemgetter("question") | compression_retriever}
-    )
+    contextual_compression_retrieval_chain = itemgetter("question") | compression_retriever
 
     # ===============================
     # Multi-Query Retrieval
@@ -192,9 +186,7 @@ def get_retrieval_chains_and_wrappers(retrievers_config, loaded_data, chat_model
         retriever=base_retriever, llm=chat_model
     )
 
-    multi_query_retrieval_chain = (
-        {"context": itemgetter("question") | multi_query_retriever}
-    )
+    multi_query_retrieval_chain = itemgetter("question") | multi_query_retriever
 
     # Example of invoking the multi-query retrieval chain:
     # ===============================
@@ -209,9 +201,7 @@ def get_retrieval_chains_and_wrappers(retrievers_config, loaded_data, chat_model
 
     parent_document_retriever.add_documents(loaded_data, ids=None)
 
-    parent_document_retrieval_chain = (
-        {"context": itemgetter("question") | parent_document_retriever}
-    )
+    parent_document_retrieval_chain = itemgetter("question") | parent_document_retriever
 
     # ===============================
     # Ensemble Retrieval
@@ -224,9 +214,7 @@ def get_retrieval_chains_and_wrappers(retrievers_config, loaded_data, chat_model
         retrievers=retriever_list, weights=equal_weighting
     )
 
-    ensemble_retrieval_chain = (
-        {"context": itemgetter("question") | ensemble_retriever}
-    )
+    ensemble_retrieval_chain = itemgetter("question") | ensemble_retriever
 
     # ===============================
     # Create the chains and wrapers

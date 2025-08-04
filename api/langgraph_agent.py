@@ -203,7 +203,13 @@ class LangGraphAgent():
         """Custom RAG-based search for relevant info."""
 
         query = state.get("query", "")
-        rag_result = custom_rag_tool.invoke(query, self.retrival_wrappers[self.retriever_mode])
+
+        rag_result = custom_rag_tool.invoke(
+            {"input" : {
+                "query": query,
+                "retriever": self.retrival_wrappers[self.retriever_mode.value]
+            }}
+        )
 
         updated_context = state.get("context", {}).copy()
         updated_context.setdefault("rag", []).append(rag_result)

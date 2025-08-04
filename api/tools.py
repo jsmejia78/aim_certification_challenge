@@ -2,7 +2,7 @@ import os
 from langchain_core.tools import Tool, tool
 from tavily import TavilyClient
 from dotenv import load_dotenv
-
+from pydantic import BaseModel
 # Load environment variables
 load_dotenv()
 
@@ -32,19 +32,24 @@ def tavily_search(query: str, max_results: int = 5) -> str:
 tavily_tool = Tool.from_function(
     func=tavily_search,
     name="tavily_search",
-    description="Search the web for the latest information related to query"
+    description="Search the web for the latest information to build context related to the query"
 )
 
-@tool
-def custom_rag_tool(query: str, retrieval_chain_wrapper) -> str:
-    """Custom RAG-based search for relevant info."""
+class RAGInput(BaseModel):
+    query: str
+    retriever: object  # or use your specific retriever type if available
 
-    result = retrieval_chain_wrapper(query)
+@tool
+def custom_rag_tool(input: RAGInput) -> str:
+    """
+    A custom RAG tool that uses the provided retriever to fetch relevant context for the input query.
+    """
+    docs = input.retriever(input.query)
 
     # Extract content for display and logging
-    if isinstance(result, str):
-        return result
-    elif isinstance(result, dict):
-        return result.get("answer", str(result))  # Prefer 'answer' field if it exists
+    if isinstance(docs, str):
+        return docs
+    elif isinstance(docs, dict):
+        return docs.get("answer", str(docs))  # Prefer 'answer' field if it exists
     else:
-        return str(result)
+        return str(docs)
