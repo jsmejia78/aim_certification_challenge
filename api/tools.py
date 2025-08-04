@@ -2,7 +2,6 @@ import os
 from langchain_core.tools import Tool, tool
 from tavily import TavilyClient
 from dotenv import load_dotenv
-from retrievers import run_retrieval_chain
 
 # Load environment variables
 load_dotenv()

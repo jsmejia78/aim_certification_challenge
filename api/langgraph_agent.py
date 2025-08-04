@@ -12,19 +12,19 @@ from typing import TypedDict, Annotated
 from dotenv import load_dotenv
 from enum import Enum
 
-from prompts import SYSTEM_PROMPT, RAG_PROMPT
+from prompts import SYSTEM_PROMPT
 from tools import tavily_tool, custom_rag_tool
 from retrievers import get_retrieval_chains_and_wrappers
 from vector_stores import VectorStoresManager
-
+from data_loader import DataLoader
 
 class RetrievalEnums(Enum):
-    NAIVE = "naive"
-    BM25 = "bm25"
-    CONTEXTUAL_COMPRESSION = "contextual_compression"
-    MULTI_QUERY = "multi_query"
-    PARENT_DOCUMENT = "parent_document"
-    ENSEMBLE = "ensemble"
+    NAIVE = "base_retrieval_chain"
+    BM25 = "bm25_retrieval_chain"
+    CONTEXTUAL_COMPRESSION = "contextual_compression_retrieval_chain"
+    MULTI_QUERY = "multi_query_retrieval_chain"
+    PARENT_DOCUMENT = "parent_document_retrieval_chain"
+    ENSEMBLE = "ensemble_retrieval_chain"
 
 # ----------------------------------------
 # Agent State Definition
@@ -136,8 +136,18 @@ class LangGraphAgent():
             self.agent_graph = graph.compile()
 
             # set up retrievers
-            self.loaded_rag_data = "loaded_rag_data"
-            self.dbs_manager = VectorStoresManager(self.loaded_rag_data)
+            data_loader = DataLoader("pd_blogs_filtered")
+            self.loaded_rag_data = data_loader.load_data()
+
+            self.dbs_manager = VectorStoresManager(    
+                MODE="baseline",
+                loaded_data=self.loaded_rag_data,
+                chunk_config={"enabled": True, "params": {"chunk_size": 1500, "chunk_overlap": 250}},
+                embeddings_model_name="text-embedding-3-small",
+                chat_model="gpt-4.1-mini",
+                collection_name="Rag Loaded Data"
+            )
+
             self.retrievers_config = {
                 "base": {
                     "vectorstore": self.dbs_manager.get_base_vectorstore()
@@ -236,6 +246,7 @@ class LangGraphAgent():
             final_response = ""
             tool_calls = []
             final_current_messages = []
+            final_context = {}
 
             if self.agent_graph:
                 async for chunk in self.agent_graph.astream(inputs, stream_mode="updates"):
@@ -248,6 +259,8 @@ class LangGraphAgent():
                                     tool_calls.extend(msg.tool_calls)
                         if "response" in values:
                             final_response = values["response"]
+                        if "context" in values:
+                            final_context = values["context"]
 
             # Append ReAct interaction to long-term agent memory
             self.agent_memory.extend(final_current_messages)
@@ -256,6 +269,7 @@ class LangGraphAgent():
                 "response": final_response or "I apologize, but I couldn't generate a response.",
                 "messages": final_current_messages,
                 "tool_calls": tool_calls,
+                "context": final_context,
                 "metadata": {
                     "model": "gpt-4.1-mini",
                     "total_messages": len(final_current_messages),
