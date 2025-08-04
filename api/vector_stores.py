@@ -16,9 +16,9 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 class VectorStoresManager():
     def __init__(self, MODE:str, 
                 loaded_data, 
-                chunk_config = {"enabled": True, "params": {"chunk_size": 1000, "chunk_overlap": 250}},
+                chunk_config = {"enabled": True, "params": {"chunk_size": 1500, "chunk_overlap": 250}},
                 embeddings_model_name = "text-embedding-3-small", 
-                chat_model = "gpt-4.1-nano",
+                chat_model = "gpt-4.1-mini",
                 collection_name = "Rag Loaded Data Baseline"):
 
         self.loaded_data = loaded_data

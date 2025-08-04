@@ -272,3 +272,9 @@ class LangGraphAgent():
         except Exception as e:
             print(f"Error in chat method: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Failed to generate response: {str(e)}")
+
+
+    def reset_longer_term_memory(self):
+        self.agent_memory = []
+
+#Agent = LangGraphAgent(retriever_mode=RetrievalEnums.NAIVE, MODE="CERT", langchain_project_name="AIM-CERT-LANGGRAPH-NAIVE")
