@@ -15,18 +15,24 @@ if current_dir not in sys.path:
 
 # Import langgraph_agent with error handling for deployment
 try:
-    from langgraph_agent import LangGraphAgent
+    from langgraph_agent import LangGraphAgent, RetrievalEnums
 except ImportError:
     # Fallback for different import paths
     try:
         import langgraph_agent as langgraph_agent
         LangGraphAgent = langgraph_agent.LangGraphAgent
+        RetrievalEnums = langgraph_agent.RetrievalEnums
     except ImportError:
-        print("Warning: LangGraphAgent  could not be imported")
+        print("Warning: LangGraphAgent could not be imported")
 
 
 # Initialize FastAPI application with a title
-app = FastAPI(title="OpenAI Chat API with PDF RAG")
+app = FastAPI(title="ParentALLm Agent")
+
+# Initialize LangGraphAgent
+Agent = LangGraphAgent(retriever_mode=RetrievalEnums.PARENT_DOCUMENT, 
+                       MODE="CHALLENGE", 
+                       langchain_project_name= "AIM-CERT-LANGGRAPH-PARENT")
 
 # Configure CORS (Cross-Origin Resource Sharing) middleware
 # This allows the API to be accessed from different domains/origins
@@ -41,23 +47,14 @@ app.add_middleware(
 # Define the data model for chat requests using Pydantic
 # This ensures incoming request data is properly validated
 class ChatRequest(BaseModel):
-    system_message: str  # Message from the developer/system
     user_message: str      # Message from the user
-    model: Optional[str] = "gpt-4o-mini"  # Optional model selection with default
-    api_keys: Dict[str, str]          # API keys for authentication
-    temperature: Optional[float] = 0.7  # Temperature for controlling creativity (0-2)
 
 # Define the main chat endpoint that handles POST requests
 @app.post("/api/chat")
 async def chat(request: ChatRequest):
     try:
         
-        agent = LangGraphAgent()
-        return await agent.chat(user_message=request.user_message, 
-                                api_keys=request.api_keys, 
-                                system_message=request.system_message, 
-                                model_name=request.model or "gpt-4o-mini", 
-                                temperature=request.temperature or 0.7)
+        return await agent.chat(request.user_message)
     
     except Exception as e:
         # Handle any errors that occur during processing
