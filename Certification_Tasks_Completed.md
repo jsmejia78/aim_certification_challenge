@@ -130,13 +130,13 @@ Note: These results only considered the RAG portion of the app and did not inclu
 (1) Based on the results from task 5, I selected two methods to run a full pipeline evaluation of the RAG system: naive and parent-child retrievers. The selection was driven by the evaluation metrics, but also by practical considerations—both methods are effective and well-suited for the type of data being used.
 The naive method is attractive due to its simplicity and strong performance, while the parent-child approach works well for relatively short blog documents like those in our dataset.
 
-- Results for naive retriever: proto_agent_eval_baseline_naive_retrieval.ipynb
+- Results for naive retriever (chunk size:750, overlap: 0): proto_agent_eval_baseline_naive_retrieval.ipynb
 
-- Results for improved naive retriever: proto_agent_eval_baseline_naive_retrieval.ipynb (same file, updated logic)
+- Results for improved naive retriever (chunk size:1000, overlap: 200): proto_agent_eval_baseline_naive_retrieval.ipynb (same file, updated logic)
 
-- Results for parent-child retriever: proto_agent_eval_advance_retrieval.ipynb
+- Results for parent-child retriever (chunk size:750, overlap: 0): proto_agent_eval_advance_retrieval.ipynb
 
-- Results for improved parent-child retriever: proto_agent_eval_advance_retrieval_improved_test2.ipynb
+- Results for improved parent-child retriever (chunk size:1000, overlap: 200): proto_agent_eval_advance_retrieval_improved_test2.ipynb
 
 (2) Summary table of tested techniques:  
 
