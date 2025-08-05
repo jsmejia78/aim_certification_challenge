@@ -12,10 +12,10 @@
 
 (1) One sentence description:
 
-Parents sometimes feel lost\guilty\stuck as to how to handle\manage challenging situations with their kids
+Parents sometimes feel lost\guilty\stuck as to how to handle\manage challenging situations with their kids:
 - Lost: literally they do not know what to do or who to turn to discuss particularly hard challenges
 - Guilty: parent managed the situation, but they are not happy about what they did and feel guilt (too harsh, too permisive, and everything in between)
-- Stuck: parent is doing what he\she learned as child, but do not like what he\she is doing - needs a bettwer way that speaks true to them
+- Stuck: parent is doing what he\she learned as child, but do not like what he\she is doing - needs a bettwer way that speaks true to them.
 
 (2) Problem for your specific user:
 
