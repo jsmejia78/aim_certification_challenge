@@ -55,6 +55,7 @@ export default function App() {
   const [userMessage, setUserMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [clearing, setClearing] = useState(false);
   
   // Chat conversation history
   const [conversation, setConversation] = useState([]);
@@ -151,8 +152,22 @@ export default function App() {
   };
 
   // Clear conversation
-  const clearConversation = () => {
+  const clearConversation = async () => {
+    setClearing(true);
     setConversation([]);
+    
+    // Also clear the agent's memory
+    try {
+      await fetch("/api/clear-memory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+    } catch (err) {
+      console.error('Failed to clear agent memory:', err);
+      // Don't show error to user - clearing chat still works locally
+    } finally {
+      setClearing(false);
+    }
   };
 
   // Get context tool type
@@ -230,17 +245,35 @@ export default function App() {
             }}>
               <button
                 onClick={clearConversation}
+                disabled={clearing}
                 style={{
                   padding: "0.5rem 1rem",
                   background: "rgba(255,255,255,0.2)",
                   border: "1px solid rgba(255,255,255,0.3)",
                   borderRadius: "8px",
                   color: "white",
-                  cursor: "pointer",
-                  fontSize: "0.875rem"
+                  cursor: clearing ? "not-allowed" : "pointer",
+                  fontSize: "0.875rem",
+                  opacity: clearing ? 0.7 : 1
                 }}
               >
-                🗑️ <span className="button-text">Clear Chat</span>
+                {clearing ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                    <div style={{
+                      width: "20px",
+                      height: "20px",
+                      border: "2px solid #e5e7eb",
+                      borderTop: "2px solid #3b82f6",
+                      borderRadius: "50%",
+                      animation: "spin 1s linear infinite"
+                    }}></div>
+                    Clearing...
+                  </div>
+                ) : (
+                  <>
+                    🗑️ <span className="button-text">Clear Chat</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

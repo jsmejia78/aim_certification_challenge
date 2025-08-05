@@ -69,6 +69,15 @@ async def chat(request: ChatRequest):
 async def health_check():
     return {"status": "ok"}
 
+# Define an endpoint to clear agent memory
+@app.post("/api/clear-memory")
+async def clear_memory():
+    try:
+        Agent.reset_longer_term_memory()
+        return {"status": "memory_cleared"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Entry point for running the application directly
 if __name__ == "__main__":
     import uvicorn

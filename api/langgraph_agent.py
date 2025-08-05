@@ -83,7 +83,7 @@ class LangGraphAgent():
 
         # Combine messages: last 3 from agent_memory + current messages
         if len(agent_memory) >= 3:
-            messages =  + current + agent_memory[-3:]
+            messages =  current + agent_memory[-3:]
         else:
             messages =  current + agent_memory
 
@@ -299,11 +299,6 @@ class LangGraphAgent():
             }
 
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to generate response: {str(e)}")
-
-
-        except Exception as e:
-            print(f"Error in chat method: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Failed to generate response: {str(e)}")
 
 
