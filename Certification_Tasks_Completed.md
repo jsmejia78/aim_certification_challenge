@@ -174,7 +174,9 @@ proto_agent_eval_advance_retrieval_improved_test2.ipynb
 
 - Increase the number of blogs used from ~80 to approximately 400–500
 
-- Reevaluate the structure of the graph; the web search tool may not be the best fit for this app, but it was included to meet requirements
+- Add guardrails
+
+- Add further personalization and a method to gather user feedback regarding the efficiency of the advice
 
 - Add support for multi-user access (this is essential for managing long-term memory)
 
@@ -182,6 +184,4 @@ proto_agent_eval_advance_retrieval_improved_test2.ipynb
 
 - Improve the user interface
 
-- Improve api folder file structure
-
-- Add guardrails
+- Improve the API folder and file structure
