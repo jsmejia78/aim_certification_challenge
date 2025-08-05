@@ -185,3 +185,10 @@ proto_agent_eval_advance_retrieval_improved_test2.ipynb
 - Improve the user interface
 
 - Improve the API folder and file structure
+
+- See what could I do to speed up the responce time of the app.
+
+
+# LOOM Video:
+
+https://www.loom.com/share/65f930265d4f49b7a7facdcb93fb747a?sid=b752ee2d-5aa6-45f7-b783-2cd6e4bea054
