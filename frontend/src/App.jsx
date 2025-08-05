@@ -173,8 +173,12 @@ export default function App() {
   // Get context tool type
   const getContextToolType = (context) => {
     if (context && typeof context === 'object') {
-      if (context.rag) return 'rag';
-      if (context.search) return 'search';
+      const hasRag = context.rag;
+      const hasSearch = context.search;
+      
+      if (hasRag && hasSearch) return 'search+rag';
+      if (hasRag) return 'rag';
+      if (hasSearch) return 'search';
     }
     return null;
   };
