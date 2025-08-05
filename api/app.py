@@ -54,7 +54,7 @@ class ChatRequest(BaseModel):
 async def chat(request: ChatRequest):
     try:
         
-        return await agent.chat(request.user_message)
+        return await Agent.chat(request.user_message)
     
     except Exception as e:
         # Handle any errors that occur during processing
