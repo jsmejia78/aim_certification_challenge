@@ -76,7 +76,7 @@ class VectorStoresManager():
 
         # Create the retriever - parent document retrieval
         self.parent_docs = self.loaded_data
-        self.child_splitter = RecursiveCharacterTextSplitter(chunk_size=750) # TODO: make this dynamic
+        self.child_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap = 250) # TODO: make this dynamic
 
         self.client_qdrant = QdrantClient(location=":memory:")
 
