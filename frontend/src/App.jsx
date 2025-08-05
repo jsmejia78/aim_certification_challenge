@@ -56,30 +56,15 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   
-  // Settings state
-  const [systemMessage, setSystemMessage] = useState("You are a helpful financial professional with deep and meaningful knowledge about the economy and the stock market in general. You have 3 tools at your disposal to perform your assigned tasks: Tavily, Wikipedia and Yahoo Finance.");
-  const [model, setModel] = useState("gpt-4o-mini");
-  
-  // API Keys state
-  const [apiKeys, setApiKeys] = useState({
-    OPENAI_API_KEY: "",
-    TAVILY_API_KEY: "",
-    LANGCHAIN_API_KEY: ""
-  });
-  
   // Chat conversation history
   const [conversation, setConversation] = useState([]);
   
   // Health check state
   const [health, setHealth] = useState(null);
   
-  // Settings popup state
-  const [showSettingsPopup, setShowSettingsPopup] = useState(false);
-  
-  // Metadata popup states
-  const [showToolCallsPopup, setShowToolCallsPopup] = useState(false);
-  const [showMessagesPopup, setShowMessagesPopup] = useState(false);
-  const [selectedMessageData, setSelectedMessageData] = useState(null);
+  // Context popup state
+  const [showContextPopup, setShowContextPopup] = useState(false);
+  const [selectedContext, setSelectedContext] = useState(null);
   
   // Ref for auto-scrolling to latest message
   const chatEndRef = useRef(null);
@@ -116,17 +101,10 @@ export default function App() {
       .catch(() => setHealth("🔴"));
   }, []);
 
-  // Check if all required API keys are present
-  const hasAllApiKeys = () => {
-    return apiKeys.OPENAI_API_KEY.trim() && 
-           apiKeys.TAVILY_API_KEY.trim() && 
-           apiKeys.LANGCHAIN_API_KEY.trim();
-  };
-
   // Handle form submit
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!userMessage.trim() || !hasAllApiKeys()) return;
+    if (!userMessage.trim()) return;
     
     setLoading(true);
     setError("");
@@ -143,10 +121,7 @@ export default function App() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          system_message: systemMessage,
-          user_message: currentUserMessage,
-          model,
-          api_keys: apiKeys,
+          user_message: currentUserMessage
         }),
       });
       
@@ -161,9 +136,7 @@ export default function App() {
         type: "assistant", 
         content: data.response || "No response received", 
         timestamp: new Date(),
-        metadata: data.metadata || {},
-        messages: data.messages || [],
-        tool_calls: data.tool_calls || []
+        context: data.context || {}
       };
       setConversation(prev => [...prev, assistantMsg]);
       
@@ -182,12 +155,13 @@ export default function App() {
     setConversation([]);
   };
 
-  // Handle API key changes
-  const handleApiKeyChange = (key, value) => {
-    setApiKeys(prev => ({
-      ...prev,
-      [key]: value
-    }));
+  // Get context tool type
+  const getContextToolType = (context) => {
+    if (context && typeof context === 'object') {
+      if (context.rag) return 'rag';
+      if (context.search) return 'search';
+    }
+    return null;
   };
 
   return (
@@ -236,7 +210,7 @@ export default function App() {
                 fontSize: "1.5rem", 
                 fontWeight: "600" 
               }}>
-                🤖 LangGraph Financial Agent
+                🤖 ParentALL
               </h1>
               <div style={{ 
                 display: "flex", 
@@ -255,24 +229,6 @@ export default function App() {
               flexShrink: 0
             }}>
               <button
-                onClick={() => setShowSettingsPopup(true)}
-                style={{
-                  padding: "0.5rem 1rem",
-                  background: "rgba(255,255,255,0.2)",
-                  border: "1px solid rgba(255,255,255,0.3)",
-                  borderRadius: "8px",
-                  color: "white",
-                  cursor: "pointer",
-                  fontSize: "0.875rem",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.5rem"
-                }}
-              >
-                ⚙️ <span className="button-text">Settings</span>
-              </button>
-              
-              <button
                 onClick={clearConversation}
                 style={{
                   padding: "0.5rem 1rem",
@@ -289,8 +245,8 @@ export default function App() {
             </div>
           </div>
 
-        {/* Settings Popup Modal */}
-        {showSettingsPopup && (
+        {/* Context Popup Modal */}
+        {showContextPopup && selectedContext && (
           <div style={{
             position: "fixed",
             top: 0,
@@ -309,7 +265,7 @@ export default function App() {
               borderRadius: "12px",
               padding: window.innerWidth <= 768 ? "1.5rem" : "2rem",
               width: "100%",
-              maxWidth: "500px",
+              maxWidth: "700px",
               maxHeight: "80vh",
               overflow: "auto",
               boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1)"
@@ -320,9 +276,11 @@ export default function App() {
                 alignItems: "center",
                 marginBottom: "1.5rem"
               }}>
-                <h2 style={{ margin: 0, color: "#1f2937" }}>⚙️ Settings</h2>
+                <h2 style={{ margin: 0, color: "#1f2937" }}>
+                  🔧 Tool Context: {getContextToolType(selectedContext)}
+                </h2>
                 <button
-                  onClick={() => setShowSettingsPopup(false)}
+                  onClick={() => setShowContextPopup(false)}
                   style={{
                     background: "none",
                     border: "none",
@@ -336,323 +294,28 @@ export default function App() {
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-                {/* System Prompt */}
-                <div>
-                  <label style={{ 
-                    display: "block", 
-                    marginBottom: "0.5rem", 
-                    fontWeight: "500",
-                    color: "#374151"
-                  }}>
-                    System Prompt:
-                  </label>
-                  <textarea
-                    placeholder="Enter system prompt (optional)..."
-                    value={systemMessage}
-                    onChange={e => setSystemMessage(e.target.value)}
-                    rows="4"
-                    style={{
-                      width: "100%",
-                      padding: "0.75rem",
-                      border: "1px solid #d1d5db",
-                      borderRadius: "6px",
-                      fontSize: "0.875rem",
-                      resize: "vertical",
-                      fontFamily: "inherit"
-                    }}
-                  />
-                </div>
-
-                {/* Model Selection */}
-                <div>
-                  <label style={{ 
-                    display: "block", 
-                    marginBottom: "0.5rem", 
-                    fontWeight: "500",
-                    color: "#374151"
-                  }}>
-                    Model:
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="gpt-4o-mini"
-                    value={model}
-                    onChange={e => setModel(e.target.value)}
-                    style={{
-                      width: "100%",
-                      padding: "0.75rem",
-                      border: "1px solid #d1d5db",
-                      borderRadius: "6px",
-                      fontSize: "0.875rem",
-                      fontFamily: "monospace"
-                    }}
-                  />
-                </div>
-
-                {/* OpenAI API Key */}
-                <div>
-                  <label style={{ 
-                    display: "block", 
-                    marginBottom: "0.5rem", 
-                    fontWeight: "500",
-                    color: "#374151"
-                  }}>
-                    OpenAI API Key:
-                  </label>
-                  <input
-                    type="password"
-                    placeholder="sk-..."
-                    value={apiKeys.OPENAI_API_KEY}
-                    onChange={e => handleApiKeyChange('OPENAI_API_KEY', e.target.value)}
-                    style={{
-                      width: "100%",
-                      padding: "0.75rem",
-                      border: "1px solid #d1d5db",
-                      borderRadius: "6px",
-                      fontSize: "0.875rem",
-                      fontFamily: "monospace"
-                    }}
-                  />
-                </div>
-
-                {/* Tavily API Key */}
-                <div>
-                  <label style={{ 
-                    display: "block", 
-                    marginBottom: "0.5rem", 
-                    fontWeight: "500",
-                    color: "#374151"
-                  }}>
-                    Tavily API Key:
-                  </label>
-                  <input
-                    type="password"
-                    placeholder="tvly-..."
-                    value={apiKeys.TAVILY_API_KEY}
-                    onChange={e => handleApiKeyChange('TAVILY_API_KEY', e.target.value)}
-                    style={{
-                      width: "100%",
-                      padding: "0.75rem",
-                      border: "1px solid #d1d5db",
-                      borderRadius: "6px",
-                      fontSize: "0.875rem",
-                      fontFamily: "monospace"
-                    }}
-                  />
-                </div>
-
-                {/* LangChain API Key */}
-                <div>
-                  <label style={{ 
-                    display: "block", 
-                    marginBottom: "0.5rem", 
-                    fontWeight: "500",
-                    color: "#374151"
-                  }}>
-                    LangChain API Key:
-                  </label>
-                  <input
-                    type="password"
-                    placeholder="lsv2_..."
-                    value={apiKeys.LANGCHAIN_API_KEY}
-                    onChange={e => handleApiKeyChange('LANGCHAIN_API_KEY', e.target.value)}
-                    style={{
-                      width: "100%",
-                      padding: "0.75rem",
-                      border: "1px solid #d1d5db",
-                      borderRadius: "6px",
-                      fontSize: "0.875rem",
-                      fontFamily: "monospace"
-                    }}
-                  />
-                </div>
-
-                <div style={{ 
-                  padding: "1rem", 
-                  background: "#f3f4f6", 
-                  borderRadius: "8px", 
-                  fontSize: "0.875rem", 
-                  color: "#4b5563" 
+                <div style={{
+                  background: "#f8fafc",
+                  border: "1px solid #e5e7eb",
+                  borderRadius: "8px",
+                  padding: "1rem"
                 }}>
-                  💡 All three API keys are required for the AI assistant to function properly.
+                  <div style={{ fontWeight: "600", marginBottom: "0.5rem", color: "#1f2937" }}>
+                    Context Data
+                  </div>
+                  <pre style={{
+                    background: "#f3f4f6",
+                    padding: "1rem",
+                    borderRadius: "4px",
+                    fontSize: "0.75rem",
+                    overflow: "auto",
+                    whiteSpace: "pre-wrap",
+                    border: "1px solid #e5e7eb",
+                    maxHeight: "400px"
+                  }}>
+                    {JSON.stringify(selectedContext, null, 2)}
+                  </pre>
                 </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Tool Calls Popup Modal */}
-        {showToolCallsPopup && selectedMessageData && (
-          <div style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: "rgba(0,0,0,0.5)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 1000,
-            padding: "1rem"
-          }}>
-            <div style={{
-              background: "white",
-              borderRadius: "12px",
-              padding: window.innerWidth <= 768 ? "1.5rem" : "2rem",
-              width: "100%",
-              maxWidth: "700px",
-              maxHeight: "80vh",
-              overflow: "auto",
-              boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1)"
-            }}>
-              <div style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                marginBottom: "1.5rem"
-              }}>
-                <h2 style={{ margin: 0, color: "#1f2937" }}>🔧 Tool Calls</h2>
-                <button
-                  onClick={() => setShowToolCallsPopup(false)}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    fontSize: "1.5rem",
-                    cursor: "pointer",
-                    color: "#6b7280"
-                  }}
-                >
-                  ×
-                </button>
-              </div>
-
-              <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-                {selectedMessageData.tool_calls && selectedMessageData.tool_calls.length > 0 ? (
-                  selectedMessageData.tool_calls.map((toolCall, index) => (
-                    <div key={index} style={{
-                      background: "#f8fafc",
-                      border: "1px solid #e5e7eb",
-                      borderRadius: "8px",
-                      padding: "1rem"
-                    }}>
-                      <div style={{ fontWeight: "600", marginBottom: "0.5rem", color: "#1f2937" }}>
-                        Tool Call #{index + 1}
-                      </div>
-                      <div style={{ fontSize: "0.875rem", color: "#6b7280", marginBottom: "0.5rem" }}>
-                        <strong>ID:</strong> {toolCall.id || "N/A"}
-                      </div>
-                      <div style={{ fontSize: "0.875rem", color: "#6b7280", marginBottom: "0.5rem" }}>
-                        <strong>Name:</strong> {toolCall.name || "N/A"}
-                      </div>
-                      <div style={{ fontSize: "0.875rem", color: "#6b7280" }}>
-                        <strong>Arguments:</strong>
-                        <pre style={{
-                          background: "#f3f4f6",
-                          padding: "0.5rem",
-                          borderRadius: "4px",
-                          marginTop: "0.25rem",
-                          fontSize: "0.75rem",
-                          overflow: "auto",
-                          whiteSpace: "pre-wrap"
-                        }}>
-                          {JSON.stringify(toolCall.args || {}, null, 2)}
-                        </pre>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <div style={{ textAlign: "center", color: "#6b7280", padding: "2rem" }}>
-                    No tool calls found
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Messages Popup Modal */}
-        {showMessagesPopup && selectedMessageData && (
-          <div style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: "rgba(0,0,0,0.5)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 1000,
-            padding: "1rem"
-          }}>
-            <div style={{
-              background: "white",
-              borderRadius: "12px",
-              padding: window.innerWidth <= 768 ? "1.5rem" : "2rem",
-              width: "100%",
-              maxWidth: "700px",
-              maxHeight: "80vh",
-              overflow: "auto",
-              boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1)"
-            }}>
-              <div style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                marginBottom: "1.5rem"
-              }}>
-                <h2 style={{ margin: 0, color: "#1f2937" }}>💬 Agent Messages</h2>
-                <button
-                  onClick={() => setShowMessagesPopup(false)}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    fontSize: "1.5rem",
-                    cursor: "pointer",
-                    color: "#6b7280"
-                  }}
-                >
-                  ×
-                </button>
-              </div>
-
-              <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-                {selectedMessageData.messages && selectedMessageData.messages.length > 0 ? (
-                  selectedMessageData.messages.map((message, index) => (
-                      <div key={index} style={{
-                        background: "#f8fafc",
-                        border: "1px solid #e5e7eb",
-                        borderRadius: "8px",
-                        padding: "1rem"
-                      }}>
-                        <div style={{ fontWeight: "600", marginBottom: "0.5rem", color: "#1f2937" }}>
-                          Message #{index + 1}
-                        </div>
-                        
-                        <div style={{ fontSize: "0.875rem", color: "#6b7280" }}>
-                          <strong>Raw Message:</strong>
-                          <pre style={{
-                            background: "#f3f4f6",
-                            padding: "0.5rem",
-                            borderRadius: "4px",
-                            marginTop: "0.25rem",
-                            fontSize: "0.75rem",
-                            overflow: "auto",
-                            whiteSpace: "pre-wrap",
-                            border: "1px solid #e5e7eb",
-                            maxHeight: "300px"
-                          }}>
-                            {JSON.stringify(message, null, 2)}
-                          </pre>
-                        </div>
-                      </div>
-                    ))
-                ) : (
-                  <div style={{ textAlign: "center", color: "#6b7280", padding: "2rem" }}>
-                    No messages found
-                  </div>
-                )}
               </div>
             </div>
           </div>
@@ -684,9 +347,9 @@ export default function App() {
                 marginTop: "2rem"
               }}>
                 <div style={{ fontSize: "3rem", marginBottom: "1rem" }}>🤖</div>
-                <div>Start a conversation with your AI assistant!</div>
+                <div>Start a conversation with ParentALL!</div>
                 <div style={{ fontSize: "0.875rem", marginTop: "0.5rem" }}>
-                  {hasAllApiKeys() ? "Ready to chat" : "Configure your API keys in Settings to get started"}
+                  Ready to chat
                 </div>
               </div>
             ) : (
@@ -721,7 +384,7 @@ export default function App() {
                       alignItems: "center",
                       gap: "0.5rem"
                     }}>
-                      {msg.type === "user" ? "👤 You" : "🤖 Assistant"}
+                      {msg.type === "user" ? "👤 You" : "🤖 ParentALL"}
                       <span>{msg.timestamp.toLocaleTimeString()}</span>
                     </div>
                     <div style={{ lineHeight: "1.6" }}>
@@ -783,42 +446,25 @@ export default function App() {
                       )}
                     </div>
                     
-                    {/* Show metadata for assistant messages */}
-                    {msg.type === "assistant" && msg.metadata && (
+                    {/* Show context tool link for assistant messages */}
+                    {msg.type === "assistant" && msg.context && getContextToolType(msg.context) && (
                       <div style={{
                         marginTop: "0.5rem",
-                        fontSize: "0.75rem",
-                        opacity: 0.7,
-                        display: "flex",
-                        gap: "1rem"
+                        fontSize: "0.75rem"
                       }}>
-                        {msg.metadata.total_tool_calls > 0 && (
-                          <span 
-                            onClick={() => {
-                              setSelectedMessageData(msg);
-                              setShowToolCallsPopup(true);
-                            }}
-                            style={{
-                              cursor: "pointer",
-                              textDecoration: "underline",
-                              color: "#3b82f6"
-                            }}
-                          >
-                            🔧 {msg.metadata.total_tool_calls} tool calls
-                          </span>
-                        )}
                         <span 
                           onClick={() => {
-                            setSelectedMessageData(msg);
-                            setShowMessagesPopup(true);
+                            setSelectedContext(msg.context);
+                            setShowContextPopup(true);
                           }}
                           style={{
                             cursor: "pointer",
                             textDecoration: "underline",
-                            color: "#3b82f6"
+                            color: "#3b82f6",
+                            opacity: 0.8
                           }}
                         >
-                          💬 {msg.metadata.total_messages} messages
+                          🔧 tool:{getContextToolType(msg.context)}
                         </span>
                       </div>
                     )}
@@ -852,7 +498,7 @@ export default function App() {
                     borderRadius: "50%",
                     animation: "spin 1s linear infinite"
                   }}></div>
-                  Agent thinking...
+                  ParentALL is thinking...
                 </div>
               </div>
             )}
@@ -872,21 +518,6 @@ export default function App() {
               fontSize: "1rem"
             }}>
               ❌ {error}
-            </div>
-          )}
-
-          {/* API Keys warning */}
-          {!hasAllApiKeys() && (
-            <div className="error-margin error-padding" style={{
-              background: "#fef3c7",
-              border: "1px solid #fde68a",
-              color: "#d97706",
-              padding: "1rem",
-              margin: "0 2rem",
-              borderRadius: "8px",
-              fontSize: "0.875rem"
-            }}>
-              💡 Configure all three API keys in Settings to enable the AI assistant
             </div>
           )}
         </div>
@@ -931,19 +562,19 @@ export default function App() {
             </div>
             <button
               type="submit"
-              disabled={loading || !userMessage.trim() || !hasAllApiKeys()}
+              disabled={loading || !userMessage.trim()}
               className="send-button"
               style={{
                 padding: "0.75rem 1.5rem",
-                background: (loading || !userMessage.trim() || !hasAllApiKeys()) ? "#94a3b8" : "#3b82f6",
+                background: (loading || !userMessage.trim()) ? "#94a3b8" : "#3b82f6",
                 color: "white",
                 border: "none",
                 borderRadius: "8px",
-                cursor: (loading || !userMessage.trim() || !hasAllApiKeys()) ? "not-allowed" : "pointer",
+                cursor: (loading || !userMessage.trim()) ? "not-allowed" : "pointer",
                 fontSize: "0.875rem",
                 fontWeight: "500",
                 whiteSpace: "nowrap",
-                opacity: (loading || !userMessage.trim() || !hasAllApiKeys()) ? 0.5 : 1,
+                opacity: (loading || !userMessage.trim()) ? 0.5 : 1,
                 minHeight: "auto"
               }}
             >

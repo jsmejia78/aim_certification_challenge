@@ -250,8 +250,9 @@ class LangGraphAgent():
         """Chat loop entrypoint"""
         try:
 
+            force_message = "Use your RAG tool or web search tool to get context to asnwer my question"
             sys_msg = SystemMessage(content=SYSTEM_PROMPT)
-            user_msg =  HumanMessage(content=user_message)
+            user_msg =  HumanMessage(content=user_message + " " + force_message)
 
             inputs: AgentState = {
                 "query": user_message,

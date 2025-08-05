@@ -54,7 +54,11 @@ class ChatRequest(BaseModel):
 async def chat(request: ChatRequest):
     try:
         
-        return await Agent.chat(request.user_message)
+        reply = await Agent.chat(request.user_message)
+        return {
+            "response": reply["response"],
+            "context": reply.get("context", {})
+        }
     
     except Exception as e:
         # Handle any errors that occur during processing
