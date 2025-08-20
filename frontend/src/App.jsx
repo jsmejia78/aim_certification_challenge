@@ -496,18 +496,6 @@ export default function App() {
                     }}>
                       {msg.type === "user" ? "👤 You" : "🤖 ParentALL"}
                       <span>{msg.timestamp.toLocaleTimeString()}</span>
-                      {msg.type === "assistant" && msg.isStreaming && (
-                        <span style={{
-                          background: "#3b82f6",
-                          color: "white",
-                          padding: "0.2rem 0.5rem",
-                          borderRadius: "12px",
-                          fontSize: "0.6rem",
-                          animation: "pulse 1.5s ease-in-out infinite"
-                        }}>
-                          Streaming...
-                        </span>
-                      )}
                     </div>
                     <div style={{ lineHeight: "1.6" }}>
                       {msg.type === "assistant" ? (
@@ -585,18 +573,7 @@ export default function App() {
                           </div>
                         )}
                         
-                        {/* Metadata */}
-                        {msg.metadata && (
-                          <div style={{
-                            padding: "0.5rem",
-                            background: "#f8fafc",
-                            border: "1px solid #e5e7eb",
-                            borderRadius: "6px",
-                            color: "#6b7280"
-                          }}>
-                            📊 Model: {msg.metadata.model} | Messages: {msg.metadata.total_messages} | Tools: {msg.metadata.total_tool_calls}
-                          </div>
-                        )}
+
                         
                         {/* Legacy context tool link for backward compatibility */}
                         {msg.context && getContextToolType(msg.context) && (
