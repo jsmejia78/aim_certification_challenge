@@ -41,63 +41,147 @@ class AgentState(TypedDict):
 # Main Agent Class
 # ----------------------------------------
 
-class LangGraphAgent():
+class LangGraphAgent:
     def __init__(self, retriever_mode: RetrievalEnums, MODE: str, langchain_project_name: str):
-
-        self.agent_graph = None
-        self.react_model = None
-        self.tool_belt = None
-        self.retrievers_config = None
+        # Validate required parameters
+        if not retriever_mode or not MODE or not langchain_project_name:
+            raise ValueError("All parameters are required")
+        
+        # Set required attributes
         self.retriever_mode = retriever_mode
-        self.retrieval_llm = None
-        self.rag_prompt = None
-        self.retriver_model = None
-        self.retrival_chains = None
-        self.retrival_wrappers = None
         self.MODE = MODE
-        self.loaded_rag_data = None
-        self.dbs_manager = None
-        self.memory = None
-        self.retrival_chain = None
-        self.retriever_wrapper = None
+        self.langchain_project_name = langchain_project_name
+        
+        # Setup environment and initialize immediately
+        self._setup_environment()
+        self._initialize_components()
 
-        # Automatically loads variables from .env file into os.environ
+    def _setup_environment(self):
+        """Setup environment variables and validate configuration"""
         load_dotenv()
-
-        assert os.getenv("OPENAI_API_KEY"), "Missing OPENAI_API_KEY"
-        assert os.getenv("TAVILY_API_KEY"), "Missing TAVILY_API_KEY"
-        assert os.getenv("LANGCHAIN_API_KEY"), "Missing LANGCHAIN_API_KEY"
-        assert os.getenv("COHERE_API_KEY"), "Missing COHERE_API_KEY"
-
+        
+        # Validate environment variables
+        required_keys = ["OPENAI_API_KEY", "TAVILY_API_KEY", "LANGCHAIN_API_KEY", "COHERE_API_KEY"]
+        missing_keys = [key for key in required_keys if not os.getenv(key)]
+        if missing_keys:
+            raise ValueError(f"Missing required environment variables: {missing_keys}")
+        
         os.environ["LANGCHAIN_TRACING_V2"] = "true"
-        os.environ["LANGCHAIN_PROJECT"] = langchain_project_name #f"AIM-CERT-{uuid4().hex[0:8]}"
+        os.environ["LANGCHAIN_PROJECT"] = self.langchain_project_name
 
-        self._initialization()
+    def _initialize_components(self):
+        """Initialize all components in dependency order"""
+        try:
+            self._load_data()
+            self._setup_vector_stores()
+            self._setup_retrievers()
+            self._setup_tools()
+            self._setup_memory()
+            self._setup_model()
+            self._setup_graph()
+        except Exception as e:
+            print(f"Error in initialization: {str(e)}") 
+            raise HTTPException(status_code=500, detail=f"Failed to initialize Agent and dependencies: {str(e)}")
+
+    def _load_data(self):
+        """Load RAG data and setup retriever model"""
+        data_loader = DataLoader("pd_blogs_filtered")
+        self.loaded_rag_data = data_loader.load_data()
+        self.retriver_model = ChatOpenAI(model="gpt-4.1-mini", temperature=0.7)
+
+    def _setup_vector_stores(self):
+        """Setup vector stores manager"""
+        self.dbs_manager = VectorStoresManager(    
+            MODE="baseline",
+            loaded_data=self.loaded_rag_data,
+            chunk_config={"enabled": True, "params": {"chunk_size": 1000, "chunk_overlap": 200}},
+            embeddings_model_name="text-embedding-3-small",
+            chat_model="gpt-4.1-mini",
+            collection_name="Rag Loaded Data Improved"
+        )
+
+    def _setup_retrievers(self):
+        """Setup retrieval chains and wrappers"""
+        # Set up retrievers config
+        self.retrievers_config = {
+            "base": {
+                "vectorstore": self.dbs_manager.get_base_vectorstore()
+            },
+            "parent_document": {
+                "vectorstore": self.dbs_manager.get_parent_document_vectorstore(),
+                "in_memory_store": self.dbs_manager.get_in_memory_store(),
+                "child_splitter": self.dbs_manager.get_child_splitter()
+            }
+        }
+
+        # Set up retrievers
+        self.retrival_chains, self.retrival_wrappers = get_retrieval_chains_and_wrappers(
+            self.retrievers_config, 
+            self.loaded_rag_data,
+            self.retriver_model,
+            self.MODE
+        )
+
+        # Set up retrieval chain
+        self.retrival_chain = self.retrival_chains[self.retriever_mode.value]
+        self.retriever_wrapper = create_retrieval_tool(self.retrival_chain)
+
+    def _setup_tools(self):
+        """Setup tool belt"""
+        self.tool_belt = get_tools()
+
+    def _setup_memory(self):
+        """Setup memory manager"""
+        self.memory = MemorySaver()
+
+    def _setup_model(self):
+        """Setup the language model with tools"""
+        self.react_model = ChatOpenAI(model="gpt-4.1-mini", temperature=0.7).bind_tools(self.tool_belt)
+
+    # ----------------------------------------
+    # Node Definitions
+    # ----------------------------------------
 
     def _prefetch_node(self, state: AgentState) -> AgentState:
         """Prefetch data from the retrieval chain"""
+        if not self.retrival_chain:
+            raise HTTPException(status_code=500, detail="Retrieval chain not initialized")
+            
         result = self.retrival_chain.invoke({"question": state["query"]})
+        
+        # Convert result to string format for AIMessage
+        if hasattr(result, 'content'):
+            content = result.content
+        elif isinstance(result, list):
+            # If it's a list of documents, extract their content
+            content = "\n\n".join([doc.page_content if hasattr(doc, 'page_content') else str(doc) for doc in result])
+        else:
+            content = str(result)
     
         return {
-        "messages": [AIMessage(content=result)]
+            "messages": [AIMessage(content=content)]
         }
 
     def _call_model(self, state: AgentState):
         """Generate reasoning output using context + prior messages"""
-
-        if self.react_model:
-            response = self.react_model.invoke(state["messages"])
-            return {
-                "messages": [response],
-                "response": response.content
-            }
-        else:
+        if not self.react_model:
             raise HTTPException(status_code=500, detail="Model not initialized")
-
+            
+        if "messages" not in state or not state["messages"]:
+            raise HTTPException(status_code=500, detail="No messages in state")
+            
+        response = self.react_model.invoke(state["messages"])
+        return {
+            "messages": [response],
+            "response": response.content
+        }
 
     def _should_continue(self, state: AgentState):
         """Route to tools if the last message has tool calls."""
         try:    
+            if "messages" not in state or not state["messages"]:
+                return END
+                
             last_message = state["messages"][-1]
             if getattr(last_message, "tool_calls", None):
                 return "action"
@@ -106,81 +190,31 @@ class LangGraphAgent():
             print(f"Error in _should_continue: {str(e)}")
             return END
 
-    def _initialization(self):
-        """Initialize models, graph, and dependencies"""
-        try:
+    # ----------------------------------------
+    # Graph Setup
+    # ----------------------------------------
 
-            # data loader
-            data_loader = DataLoader("pd_blogs_filtered")
-            self.loaded_rag_data = data_loader.load_data()
+    def _setup_graph(self):
+        """Setup and compile the LangGraph workflow"""
+        graph = StateGraph(AgentState, name="companion-agent-graph")
 
-            # set up retriever model (in case it is needed)
-            self.retriver_model = ChatOpenAI(model="gpt-4.1-mini", temperature=0.7)
+        # Set up tool node
+        self.tool_node = ToolNode(self.tool_belt)
 
-            # set up vector stores
-            self.dbs_manager = VectorStoresManager(    
-                MODE="baseline",
-                loaded_data=self.loaded_rag_data,
-                chunk_config={"enabled": True, "params": {"chunk_size": 1000, "chunk_overlap": 200}},
-                embeddings_model_name="text-embedding-3-small",
-                chat_model="gpt-4.1-mini",
-                collection_name="Rag Loaded Data Improved"
-            )
+        # Set up nodes and edges
+        graph.add_node("prefetch", self._prefetch_node)
+        graph.add_node("agent", self._call_model)
+        graph.add_node("action", self.tool_node)
+        graph.set_entry_point("prefetch")  # Start with prefetch
+        graph.add_edge("prefetch", "agent")  # Prefetch -> Agent
+        graph.add_conditional_edges("agent", self._should_continue,  {"action": "action", END: END})
+        graph.add_edge("action", "agent")
 
-            # set up retrievers config
-            self.retrievers_config = {
-                "base": {
-                    "vectorstore": self.dbs_manager.get_base_vectorstore()
-                },
-                "parent_document": {
-                    "vectorstore": self.dbs_manager.get_parent_document_vectorstore(),
-                    "in_memory_store": self.dbs_manager.get_in_memory_store(),
-                    "child_splitter": self.dbs_manager.get_child_splitter()
-                }
-            }
+        self.agent_graph = graph.compile(checkpointer=self.memory)
 
-            # set up retrievers
-            self.retrival_chains, self.retrival_wrappers = get_retrieval_chains_and_wrappers(
-                self.retrievers_config, 
-                self.loaded_rag_data,
-                self.retriver_model,
-                self.MODE
-            )
-
-            # set up retrieval chain
-            self.retrival_chain = self.retrival_chains[self.retriever_mode.value]
-            self.retriever_wrapper = create_retrieval_tool(self.rag_chain)
-
-            # set up tools belt
-            self.tool_belt = get_tools()
-
-            # set up memory
-            self.memory = MemorySaver()
-
-            # set up model
-            self.react_model = ChatOpenAI(model="gpt-4.1-mini", temperature=0.7).bind_tools(self.tool_belt)
-
-            graph = StateGraph(AgentState, name="companion-agent-graph")
-
-            # set up tool node
-            self.tool_node = ToolNode(self.tool_belt)
-
-            # set up nodes and edges
-            graph.add_node("prefetch", self._prefetch_node)
-            graph.add_node("agent", self._call_model)
-            graph.add_node("action", self.tool_node)
-            graph.set_entry_point("agent")
-            graph.add_conditional_edges("agent", self._should_continue,  {"action": "action", END: END})
-            graph.add_edge("action", "agent")
-            graph.add_edge("prefetch", "agent")
-
-            self.agent_graph = graph.compile(checkpointer=self.memory)
-
-        except Exception as e:
-            print(f"Error in initialization: {str(e)}") 
-            raise HTTPException(status_code=500, detail=f"Failed to initialize Agent and dependencies: {str(e)}")
-
-
+    # ----------------------------------------
+    # Chat Loop
+    # ----------------------------------------
     async def chat(self, user_message: str, config_thread: dict):
         """Chat loop entrypoint with streaming support"""
         try:
