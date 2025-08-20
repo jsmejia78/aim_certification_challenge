@@ -117,15 +117,7 @@ export default function App() {
     const currentUserMessage = userMessage;
     setUserMessage(""); // Clear input immediately
     
-    // Add initial assistant message for streaming
-    const assistantMsg = { 
-      type: "assistant", 
-      content: "", 
-      timestamp: new Date(),
-      context: {},
-      isStreaming: true
-    };
-    setConversation(prev => [...prev, assistantMsg]);
+    // Don't add assistant message yet - wait for first streaming content
     
     try {
       const res = await fetch("/api/chat", {
@@ -163,19 +155,37 @@ export default function App() {
                 // Update conversation based on streaming data type
                 setConversation(prev => {
                   const newConversation = [...prev];
-                  const lastMessage = newConversation[newConversation.length - 1];
+                  let lastMessage = newConversation[newConversation.length - 1];
                   
-                  if (data.type === "message" && lastMessage.type === "assistant") {
+                  // Check if we need to create the assistant message for the first time
+                  const needsAssistantMessage = !lastMessage || lastMessage.type !== "assistant";
+                  
+                  if (needsAssistantMessage && (data.type === "message" || data.type === "response")) {
+                    // Create assistant message on first streaming content
+                    const assistantMsg = { 
+                      type: "assistant", 
+                      content: "", 
+                      timestamp: new Date(),
+                      context: {},
+                      isStreaming: true,
+                      tool_calls: [],
+                      metadata: null
+                    };
+                    newConversation.push(assistantMsg);
+                    lastMessage = assistantMsg;
+                  }
+                  
+                  if (data.type === "message" && lastMessage && lastMessage.type === "assistant") {
                     // Append message content
                     lastMessage.content += data.content;
-                  } else if (data.type === "response" && lastMessage.type === "assistant") {
+                  } else if (data.type === "response" && lastMessage && lastMessage.type === "assistant") {
                     // Update response content
                     lastMessage.content = data.content;
-                  } else if (data.type === "tool_call" && lastMessage.type === "assistant") {
+                  } else if (data.type === "tool_call" && lastMessage && lastMessage.type === "assistant") {
                     // Update tool calls
                     lastMessage.tool_calls = data.content.tool_calls;
                     lastMessage.context = { ...lastMessage.context, tool_calls: data.content.tool_calls };
-                  } else if (data.type === "final" && lastMessage.type === "assistant") {
+                  } else if (data.type === "final" && lastMessage && lastMessage.type === "assistant") {
                     // Final update with metadata
                     lastMessage.isStreaming = false;
                     lastMessage.metadata = data.content.metadata;
@@ -218,7 +228,19 @@ export default function App() {
       console.error('Chat error:', err);
       setError(err.message || "Unknown error occurred");
       // Remove the user message if there was an error
-      setConversation(prev => prev.slice(0, -2)); // Remove both user and assistant messages
+      setConversation(prev => {
+        const newConv = [...prev];
+        // Remove user message (always the last one if no assistant message was added)
+        if (newConv.length > 0 && newConv[newConv.length - 1].type === "user") {
+          newConv.pop();
+        }
+        // If assistant message was added, remove it too
+        else if (newConv.length > 1 && newConv[newConv.length - 1].type === "assistant") {
+          newConv.pop(); // Remove assistant
+          newConv.pop(); // Remove user
+        }
+        return newConv;
+      });
     } finally {
       setLoading(false);
     }
