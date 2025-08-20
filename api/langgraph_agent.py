@@ -237,24 +237,26 @@ class LangGraphAgent:
                 if self.agent_graph:
                     async for chunk in self.agent_graph.astream(inputs, stream_mode="updates", config=config_thread):
                         for node, values in chunk.items():
-                            # Stream each update as it happens
-                            if "messages" in values:
+                            # Only stream content from the "agent" node (LLM responses)
+                            # Don't stream prefetch content or tool results
+                            if node == "agent" and "messages" in values:
                                 for msg in values["messages"]:
                                     final_messages.append(msg)
                                     # Extract tool calls if they exist in AssistantMessage
                                     if hasattr(msg, "tool_calls") and msg.tool_calls:
                                         tool_calls.extend(msg.tool_calls)
                                     
-                                    # Stream the message content
-                                    if hasattr(msg, 'content') and msg.content:
+                                    # Stream the LLM message content only
+                                    if hasattr(msg, 'content') and msg.content and msg.__class__.__name__ == "AIMessage":
                                         yield {
                                             "type": "message",
                                             "content": msg.content,
-                                            "role": msg.__class__.__name__.lower().replace('message', ''),
+                                            "role": "assistant",
                                             "timestamp": str(datetime.now())
                                         }
                             
-                            if "response" in values:
+                            # Stream the final response only from agent node
+                            if node == "agent" and "response" in values:
                                 final_response = values["response"]
                                 # Stream the response
                                 if final_response:
@@ -264,8 +266,17 @@ class LangGraphAgent:
                                         "timestamp": str(datetime.now())
                                     }
                             
-                            # Stream tool call information
-                            if "action" in node and tool_calls:
+                            # Collect all messages from all nodes for final summary (but don't stream them)
+                            if "messages" in values:
+                                for msg in values["messages"]:
+                                    if msg not in final_messages:
+                                        final_messages.append(msg)
+                                    # Extract tool calls if they exist
+                                    if hasattr(msg, "tool_calls") and msg.tool_calls:
+                                        tool_calls.extend(msg.tool_calls)
+                            
+                            # Stream tool call information only when tools are executed
+                            if node == "action" and tool_calls:
                                 yield {
                                     "type": "tool_call",
                                     "content": {

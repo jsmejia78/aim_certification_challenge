@@ -67,32 +67,53 @@ export default function App() {
   const [showContextPopup, setShowContextPopup] = useState(false);
   const [selectedContext, setSelectedContext] = useState(null);
   
+  // Auto-scroll control
+  const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
+  const [lastMessageCount, setLastMessageCount] = useState(0);
+  
   // Ref for auto-scrolling to latest message
   const chatEndRef = useRef(null);
   const chatContainerRef = useRef(null);
 
-  // Auto-scroll to bottom when new messages are added
+  // Smart auto-scroll logic
   useEffect(() => {
     if (chatEndRef.current && chatContainerRef.current) {
-      // Use a more reliable scroll method
-      const scrollToBottom = () => {
-        chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-      };
+      const currentMessageCount = conversation.length;
       
-      // Use requestAnimationFrame to ensure DOM is updated
-      requestAnimationFrame(scrollToBottom);
+      // Only auto-scroll when:
+      // 1. A new message is added (message count increased)
+      // 2. shouldAutoScroll is true
+      // 3. Loading state changed to true (new question submitted)
+      if (shouldAutoScroll && (currentMessageCount > lastMessageCount || loading)) {
+        const scrollToBottom = () => {
+          chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+        };
+        
+        // Use requestAnimationFrame to ensure DOM is updated
+        requestAnimationFrame(scrollToBottom);
+      }
+      
+      // Update the last message count
+      setLastMessageCount(currentMessageCount);
     }
-  }, [conversation]);
+  }, [conversation, loading, shouldAutoScroll, lastMessageCount]);
 
-  // Force scroll to bottom when loading state changes
+  // Detect if user manually scrolled up
   useEffect(() => {
-    if (chatEndRef.current && chatContainerRef.current) {
-      const scrollToBottom = () => {
-        chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-      };
-      requestAnimationFrame(scrollToBottom);
-    }
-  }, [loading]);
+    const chatContainer = chatContainerRef.current;
+    if (!chatContainer) return;
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = chatContainer;
+      const isAtBottom = scrollTop + clientHeight >= scrollHeight - 50; // 50px threshold
+      
+      // Enable auto-scroll if user is near bottom, disable if scrolled up
+      setShouldAutoScroll(isAtBottom);
+    };
+
+    chatContainer.addEventListener('scroll', handleScroll);
+    return () => chatContainer.removeEventListener('scroll', handleScroll);
+  }, []);
 
   // Health check on mount
   React.useEffect(() => {
@@ -109,6 +130,9 @@ export default function App() {
     
     setLoading(true);
     setError("");
+    
+    // Enable auto-scroll for new conversation
+    setShouldAutoScroll(true);
     
     // Add user message to conversation
     const userMsg = { type: "user", content: userMessage, timestamp: new Date() };
@@ -324,7 +348,7 @@ export default function App() {
                 fontSize: "1.5rem", 
                 fontWeight: "600" 
               }}>
-                🤖 ParentALL
+                🤖 ParentALL.ai
               </h1>
               <div style={{ 
                 display: "flex", 
@@ -479,7 +503,7 @@ export default function App() {
                 marginTop: "2rem"
               }}>
                 <div style={{ fontSize: "3rem", marginBottom: "1rem" }}>🤖</div>
-                <div>Start a conversation with ParentALL!</div>
+                <div>Start a conversation with ParentALL.ai!</div>
                 <div style={{ fontSize: "0.875rem", marginTop: "0.5rem" }}>
                   Ready to chat
                 </div>
@@ -516,7 +540,7 @@ export default function App() {
                       alignItems: "center",
                       gap: "0.5rem"
                     }}>
-                      {msg.type === "user" ? "👤 You" : "🤖 ParentALL"}
+                      {msg.type === "user" ? "👤 You" : "🤖 ParentALL.ai"}
                       <span>{msg.timestamp.toLocaleTimeString()}</span>
                     </div>
                     <div style={{ lineHeight: "1.6" }}>
@@ -648,7 +672,7 @@ export default function App() {
                     borderRadius: "50%",
                     animation: "spin 1s linear infinite"
                   }}></div>
-                  ParentALL is thinking...
+                  ParentALL.ai is thinking...
                 </div>
               </div>
             )}
