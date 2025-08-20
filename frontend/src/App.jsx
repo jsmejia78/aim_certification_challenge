@@ -67,53 +67,46 @@ export default function App() {
   const [showContextPopup, setShowContextPopup] = useState(false);
   const [selectedContext, setSelectedContext] = useState(null);
   
-  // Auto-scroll control
-  const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
-  const [lastMessageCount, setLastMessageCount] = useState(0);
+  // Simple scroll control
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [questionSubmitted, setQuestionSubmitted] = useState(false);
   
   // Ref for auto-scrolling to latest message
   const chatEndRef = useRef(null);
   const chatContainerRef = useRef(null);
 
-  // Smart auto-scroll logic
+  // Simple scroll logic: scroll to question when submitted, then lock until streaming finishes
   useEffect(() => {
-    if (chatEndRef.current && chatContainerRef.current) {
-      const currentMessageCount = conversation.length;
-      
-      // Only auto-scroll when:
-      // 1. A new message is added (message count increased)
-      // 2. shouldAutoScroll is true
-      // 3. Loading state changed to true (new question submitted)
-      if (shouldAutoScroll && (currentMessageCount > lastMessageCount || loading)) {
-        const scrollToBottom = () => {
-          chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-        };
-        
-        // Use requestAnimationFrame to ensure DOM is updated
-        requestAnimationFrame(scrollToBottom);
-      }
-      
-      // Update the last message count
-      setLastMessageCount(currentMessageCount);
+    if (questionSubmitted && chatEndRef.current && chatContainerRef.current) {
+      // Scroll to show the question
+      const scrollToBottom = () => {
+        chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+      };
+      requestAnimationFrame(scrollToBottom);
+      setQuestionSubmitted(false); // Only scroll once per question
     }
-  }, [conversation, loading, shouldAutoScroll, lastMessageCount]);
+  }, [questionSubmitted]);
 
-  // Detect if user manually scrolled up
+  // Disable scrolling during streaming by adding CSS
   useEffect(() => {
     const chatContainer = chatContainerRef.current;
     if (!chatContainer) return;
 
-    const handleScroll = () => {
-      const { scrollTop, scrollHeight, clientHeight } = chatContainer;
-      const isAtBottom = scrollTop + clientHeight >= scrollHeight - 50; // 50px threshold
-      
-      // Enable auto-scroll if user is near bottom, disable if scrolled up
-      setShouldAutoScroll(isAtBottom);
-    };
+    if (isStreaming) {
+      // Disable scrolling during streaming
+      chatContainer.style.overflowY = 'hidden';
+    } else {
+      // Re-enable scrolling when streaming finishes
+      chatContainer.style.overflowY = 'auto';
+    }
 
-    chatContainer.addEventListener('scroll', handleScroll);
-    return () => chatContainer.removeEventListener('scroll', handleScroll);
-  }, []);
+    return () => {
+      // Cleanup
+      if (chatContainer) {
+        chatContainer.style.overflowY = 'auto';
+      }
+    };
+  }, [isStreaming]);
 
   // Health check on mount
   React.useEffect(() => {
@@ -131,8 +124,9 @@ export default function App() {
     setLoading(true);
     setError("");
     
-    // Enable auto-scroll for new conversation
-    setShouldAutoScroll(true);
+    // Trigger scroll to question and start streaming mode
+    setQuestionSubmitted(true);
+    setIsStreaming(true);
     
     // Add user message to conversation
     const userMsg = { type: "user", content: userMessage, timestamp: new Date() };
@@ -214,6 +208,8 @@ export default function App() {
                     lastMessage.isStreaming = false;
                     lastMessage.metadata = data.content.metadata;
                     lastMessage.tool_calls = data.content.tool_calls || [];
+                    // End streaming mode - allow user to scroll
+                    setIsStreaming(false);
                   }
                   
                   return newConversation;
@@ -267,6 +263,7 @@ export default function App() {
       });
     } finally {
       setLoading(false);
+      setIsStreaming(false); // End streaming mode on error
     }
   };
 
