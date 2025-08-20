@@ -80,22 +80,6 @@ async def chat(request: ChatRequest):
         # Handle any errors that occur during processing
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/chat-non-streaming")
-async def chat_non_streaming(request: ChatRequest):
-    """Non-streaming endpoint for backward compatibility"""
-    try:
-        config_thread = {"configurable": {"thread_id": request.thread_id}}
-        reply = await Agent.chat_non_streaming(request.user_message, config_thread)
-        return {
-            "response": reply["response"],
-            "messages": reply.get("messages", []),
-            "tool_calls": reply.get("tool_calls", []),
-            "metadata": reply.get("metadata", {})
-        }
-    
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
 # Define a health check endpoint to verify API status
 @app.get("/api/health")
 async def health_check():

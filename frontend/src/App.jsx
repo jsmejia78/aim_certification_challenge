@@ -117,12 +117,23 @@ export default function App() {
     const currentUserMessage = userMessage;
     setUserMessage(""); // Clear input immediately
     
+    // Add initial assistant message for streaming
+    const assistantMsg = { 
+      type: "assistant", 
+      content: "", 
+      timestamp: new Date(),
+      context: {},
+      isStreaming: true
+    };
+    setConversation(prev => [...prev, assistantMsg]);
+    
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          user_message: currentUserMessage
+          user_message: currentUserMessage,
+          thread_id: "1" // Default thread_id as requested
         }),
       });
       
@@ -130,22 +141,84 @@ export default function App() {
         throw new Error(`HTTP error! status: ${res.status}`);
       }
       
-      const data = await res.json();
+      // Handle streaming response
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
       
-      // Add assistant message
-      const assistantMsg = { 
-        type: "assistant", 
-        content: data.response || "No response received", 
-        timestamp: new Date(),
-        context: data.context || {}
-      };
-      setConversation(prev => [...prev, assistantMsg]);
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+          
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6));
+                
+                // Update conversation based on streaming data type
+                setConversation(prev => {
+                  const newConversation = [...prev];
+                  const lastMessage = newConversation[newConversation.length - 1];
+                  
+                  if (data.type === "message" && lastMessage.type === "assistant") {
+                    // Append message content
+                    lastMessage.content += data.content;
+                  } else if (data.type === "response" && lastMessage.type === "assistant") {
+                    // Update response content
+                    lastMessage.content = data.content;
+                  } else if (data.type === "tool_call" && lastMessage.type === "assistant") {
+                    // Update tool calls
+                    lastMessage.tool_calls = data.content.tool_calls;
+                    lastMessage.context = { ...lastMessage.context, tool_calls: data.content.tool_calls };
+                  } else if (data.type === "final" && lastMessage.type === "assistant") {
+                    // Final update with metadata
+                    lastMessage.isStreaming = false;
+                    lastMessage.metadata = data.content.metadata;
+                    lastMessage.tool_calls = data.content.tool_calls || [];
+                  }
+                  
+                  return newConversation;
+                });
+              } catch (parseError) {
+                console.error('Error parsing streaming data:', parseError);
+              }
+            }
+          }
+        }
+      } catch (streamError) {
+        console.error('Streaming error:', streamError);
+        // Mark the message as no longer streaming and show error
+        setConversation(prev => {
+          const newConversation = [...prev];
+          const lastMessage = newConversation[newConversation.length - 1];
+          if (lastMessage.type === "assistant") {
+            lastMessage.isStreaming = false;
+            lastMessage.content = "Error: Streaming response was interrupted.";
+          }
+          return newConversation;
+        });
+      } finally {
+        // Ensure the message is marked as not streaming
+        setConversation(prev => {
+          const newConversation = [...prev];
+          const lastMessage = newConversation[newConversation.length - 1];
+          if (lastMessage && lastMessage.type === "assistant") {
+            lastMessage.isStreaming = false;
+          }
+          return newConversation;
+        });
+      }
       
     } catch (err) {
       console.error('Chat error:', err);
       setError(err.message || "Unknown error occurred");
       // Remove the user message if there was an error
-      setConversation(prev => prev.slice(0, -1));
+      setConversation(prev => prev.slice(0, -2)); // Remove both user and assistant messages
     } finally {
       setLoading(false);
     }
@@ -423,6 +496,18 @@ export default function App() {
                     }}>
                       {msg.type === "user" ? "👤 You" : "🤖 ParentALL"}
                       <span>{msg.timestamp.toLocaleTimeString()}</span>
+                      {msg.type === "assistant" && msg.isStreaming && (
+                        <span style={{
+                          background: "#3b82f6",
+                          color: "white",
+                          padding: "0.2rem 0.5rem",
+                          borderRadius: "12px",
+                          fontSize: "0.6rem",
+                          animation: "pulse 1.5s ease-in-out infinite"
+                        }}>
+                          Streaming...
+                        </span>
+                      )}
                     </div>
                     <div style={{ lineHeight: "1.6" }}>
                       {msg.type === "assistant" ? (
@@ -474,7 +559,7 @@ export default function App() {
                             )
                           }}
                         >
-                          {msg.content}
+                          {msg.content || (msg.isStreaming ? "..." : "No response received")}
                         </ReactMarkdown>
                       ) : (
                         <div style={{ whiteSpace: "pre-wrap" }}>
@@ -483,26 +568,55 @@ export default function App() {
                       )}
                     </div>
                     
-                    {/* Show context tool link for assistant messages */}
-                    {msg.type === "assistant" && msg.context && getContextToolType(msg.context) && (
-                      <div style={{
-                        marginTop: "0.5rem",
-                        fontSize: "0.75rem"
-                      }}>
-                        <span 
-                          onClick={() => {
-                            setSelectedContext(msg.context);
-                            setShowContextPopup(true);
-                          }}
-                          style={{
-                            cursor: "pointer",
-                            textDecoration: "underline",
-                            color: "#3b82f6",
-                            opacity: 0.8
-                          }}
-                        >
-                          🔧 tool:{getContextToolType(msg.context)}
-                        </span>
+                    {/* Show tool calls and metadata for assistant messages */}
+                    {msg.type === "assistant" && (
+                      <div style={{ marginTop: "0.5rem", fontSize: "0.75rem" }}>
+                        {/* Tool calls indicator */}
+                        {msg.tool_calls && msg.tool_calls.length > 0 && (
+                          <div style={{
+                            marginBottom: "0.5rem",
+                            padding: "0.5rem",
+                            background: "#f0f9ff",
+                            border: "1px solid #bae6fd",
+                            borderRadius: "6px",
+                            color: "#0369a1"
+                          }}>
+                            🔧 Used {msg.tool_calls.length} tool(s)
+                          </div>
+                        )}
+                        
+                        {/* Metadata */}
+                        {msg.metadata && (
+                          <div style={{
+                            padding: "0.5rem",
+                            background: "#f8fafc",
+                            border: "1px solid #e5e7eb",
+                            borderRadius: "6px",
+                            color: "#6b7280"
+                          }}>
+                            📊 Model: {msg.metadata.model} | Messages: {msg.metadata.total_messages} | Tools: {msg.metadata.total_tool_calls}
+                          </div>
+                        )}
+                        
+                        {/* Legacy context tool link for backward compatibility */}
+                        {msg.context && getContextToolType(msg.context) && (
+                          <div style={{ marginTop: "0.5rem" }}>
+                            <span 
+                              onClick={() => {
+                                setSelectedContext(msg.context);
+                                setShowContextPopup(true);
+                              }}
+                              style={{
+                                cursor: "pointer",
+                                textDecoration: "underline",
+                                color: "#3b82f6",
+                                opacity: 0.8
+                              }}
+                            >
+                              🔧 tool:{getContextToolType(msg.context)}
+                            </span>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

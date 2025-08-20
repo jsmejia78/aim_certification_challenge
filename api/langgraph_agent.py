@@ -47,8 +47,6 @@ class LangGraphAgent():
         self.agent_graph = None
         self.react_model = None
         self.tool_belt = None
-        self.agent_memory = []
-
         self.retrievers_config = None
         self.retriever_mode = retriever_mode
         self.retrieval_llm = None
@@ -265,46 +263,7 @@ class LangGraphAgent():
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to generate response: {str(e)}")
 
-    async def chat_non_streaming(self, user_message: str, config_thread: dict):
-        """Non-streaming version for backward compatibility"""
-        try:
-            force_message = "Use your RAG tool or web search tool to get context to answer my question"
-            sys_msg = SystemMessage(content=SYSTEM_PROMPT)
-            user_msg = HumanMessage(content=user_message + " " + force_message)
-
-            inputs: AgentState = {
-                "query": user_message,
-                "messages": [sys_msg, user_msg],
-                "response": ""
-            }
-
-            final_response = ""
-            tool_calls = []
-            final_messages = []
-
-            if self.agent_graph:
-                async for chunk in self.agent_graph.astream(inputs, stream_mode="updates", config=config_thread):
-                    for _, values in chunk.items(): # node, values -> node not used
-                        if "messages" in values:
-                            for msg in values["messages"]:
-                                final_messages.append(msg)
-                                if hasattr(msg, "tool_calls") and msg.tool_calls:
-                                    tool_calls.extend(msg.tool_calls)
-                        if "response" in values:
-                            final_response = values["response"]
-
-            return {
-                "response": final_response or "I apologize, but I couldn't generate a response.",
-                "messages": final_messages,
-                "tool_calls": tool_calls,
-                "metadata": {
-                    "model": "gpt-4.1-mini",
-                    "total_messages": len(final_messages),
-                    "total_tool_calls": len(tool_calls),
-                    "system_message_used": True
-                },
-                "status": "success"
-            }
-
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to generate response: {str(e)}")
+    def reset_longer_term_memory(self):
+        """Reset the agent's memory"""
+        if self.memory:
+            self.memory.clear()
