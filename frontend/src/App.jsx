@@ -75,14 +75,31 @@ export default function App() {
   const chatEndRef = useRef(null);
   const chatContainerRef = useRef(null);
 
-  // Simple scroll logic: scroll to question when submitted, then lock until streaming finishes
+  // Smart scroll logic: bring the new question to the top of viewing area
   useEffect(() => {
-    if (questionSubmitted && chatEndRef.current && chatContainerRef.current) {
-      // Scroll to show the question
-      const scrollToBottom = () => {
-        chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-      };
-      requestAnimationFrame(scrollToBottom);
+    if (questionSubmitted && chatContainerRef.current) {
+      // Find the last user message (the question we just added)
+      const userMessages = chatContainerRef.current.querySelectorAll('[data-message-type="user"]');
+      const lastUserMessage = userMessages[userMessages.length - 1];
+      
+      if (lastUserMessage) {
+        // Calculate scroll position to bring question to top of viewing area
+        const scrollToQuestion = () => {
+          const container = chatContainerRef.current;
+          const messageRect = lastUserMessage.getBoundingClientRect();
+          const containerRect = container.getBoundingClientRect();
+          
+          // Calculate how much to scroll to bring the message to the top
+          const scrollAmount = container.scrollTop + (messageRect.top - containerRect.top);
+          
+          // Scroll to position the question at the top
+          container.scrollTo({
+            top: scrollAmount,
+            behavior: 'smooth'
+          });
+        };
+        requestAnimationFrame(scrollToQuestion);
+      }
       setQuestionSubmitted(false); // Only scroll once per question
     }
   }, [questionSubmitted]);
@@ -509,6 +526,7 @@ export default function App() {
               conversation.map((msg, idx) => (
                 <div
                   key={idx}
+                  data-message-type={msg.type}
                   style={{
                     display: "flex",
                     justifyContent: msg.type === "user" ? "flex-end" : "flex-start",
