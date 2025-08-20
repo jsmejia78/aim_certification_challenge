@@ -27,12 +27,12 @@ except ImportError:
 
 
 # Initialize FastAPI application with a title
-app = FastAPI(title="ParentALLm Agent")
+app = FastAPI(title="ParentALL Agent")
 
 # Initialize LangGraphAgent
 Agent = LangGraphAgent(retriever_mode=RetrievalEnums.PARENT_DOCUMENT, 
-                       MODE="CHALLENGE", 
-                       langchain_project_name= "AIM-CERT-LANGGRAPH-PARENT")
+                       MODE="DEMO_DAY", 
+                       langchain_project_name= "AIM-DEMO-DAY")
 
 # Configure CORS (Cross-Origin Resource Sharing) middleware
 # This allows the API to be accessed from different domains/origins
@@ -48,13 +48,15 @@ app.add_middleware(
 # This ensures incoming request data is properly validated
 class ChatRequest(BaseModel):
     user_message: str      # Message from the user
+    thread_id: str = "1"
 
 # Define the main chat endpoint that handles POST requests
 @app.post("/api/chat")
 async def chat(request: ChatRequest):
     try:
         
-        reply = await Agent.chat(request.user_message)
+        config_thread = {"configurable": {"thread_id": request.thread_id}}
+        reply = await Agent.chat(request.user_message, config_thread)
         return {
             "response": reply["response"],
             "context": reply.get("context", {})
