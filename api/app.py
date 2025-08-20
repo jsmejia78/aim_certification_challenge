@@ -1,12 +1,14 @@
 # Import required FastAPI components for building the API
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 # Import Pydantic for data validation and settings management
 from pydantic import BaseModel
 # Import OpenAI client for interacting with OpenAI's API
 from typing import Optional, Dict
 import os
 import sys
+import json
 
 # Add the current directory to Python path for Vercel compatibility
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -54,16 +56,44 @@ class ChatRequest(BaseModel):
 @app.post("/api/chat")
 async def chat(request: ChatRequest):
     try:
-        
         config_thread = {"configurable": {"thread_id": request.thread_id}}
-        reply = await Agent.chat(request.user_message, config_thread)
-        return {
-            "response": reply["response"],
-            "context": reply.get("context", {})
-        }
+        
+        # Get the streaming response generator
+        stream_generator = await Agent.chat(request.user_message, config_thread)
+        
+        # Create a streaming response
+        async def generate():
+            async for chunk in stream_generator:
+                yield f"data: {json.dumps(chunk)}\n\n"
+        
+        return StreamingResponse(
+            generate(),
+            media_type="text/plain",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "Content-Type": "text/event-stream"
+            }
+        )
     
     except Exception as e:
         # Handle any errors that occur during processing
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/chat-non-streaming")
+async def chat_non_streaming(request: ChatRequest):
+    """Non-streaming endpoint for backward compatibility"""
+    try:
+        config_thread = {"configurable": {"thread_id": request.thread_id}}
+        reply = await Agent.chat_non_streaming(request.user_message, config_thread)
+        return {
+            "response": reply["response"],
+            "messages": reply.get("messages", []),
+            "tool_calls": reply.get("tool_calls", []),
+            "metadata": reply.get("metadata", {})
+        }
+    
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 # Define a health check endpoint to verify API status

@@ -11,7 +11,7 @@ from langchain.chains.base import Chain
 load_dotenv()
 
 
-def create_retrival_tool(retrieval_chain):
+def create_retrieval_tool(retrieval_chain):
     """Create a retrieval tool."""
     
     @tool
@@ -38,6 +38,6 @@ def get_tools(rag_chain : Optional[Chain] = None) -> List:
     
     # Add RAG tool if provided
     if rag_chain:
-        tools.append(create_retrival_tool(rag_chain))
+        tools.append(create_retrieval_tool(rag_chain))
     
     return tools

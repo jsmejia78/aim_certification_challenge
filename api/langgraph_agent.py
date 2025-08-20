@@ -1,8 +1,9 @@
 import os
 from typing import List, Dict, Any
 from fastapi import HTTPException
+from datetime import datetime
 
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, AIMessage
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph.message import add_messages
@@ -14,7 +15,7 @@ from enum import Enum
 from langgraph.prebuilt import ToolNode
 
 from prompts import SYSTEM_PROMPT
-from tools import get_tools
+from tools import get_tools, create_retrieval_tool
 from retrievers import get_retrieval_chains_and_wrappers
 from vector_stores import VectorStoresManager
 from data_loader import DataLoader
@@ -34,7 +35,6 @@ class RetrievalEnums(Enum):
 class AgentState(TypedDict):
     query: str
     messages: Annotated[List[BaseMessage], add_messages]
-    context: Dict[str, List[Any]]
     response: str
 
 # ----------------------------------------
@@ -60,6 +60,8 @@ class LangGraphAgent():
         self.loaded_rag_data = None
         self.dbs_manager = None
         self.memory = None
+        self.retrival_chain = None
+        self.retriever_wrapper = None
 
         # Automatically loads variables from .env file into os.environ
         load_dotenv()
@@ -74,6 +76,13 @@ class LangGraphAgent():
 
         self._initialization()
 
+    def _prefetch_node(self, state: AgentState) -> AgentState:
+        """Prefetch data from the retrieval chain"""
+        result = self.retrival_chain.invoke({"question": state["query"]})
+    
+        return {
+        "messages": [AIMessage(content=result)]
+        }
 
     def _call_model(self, state: AgentState):
         """Generate reasoning output using context + prior messages"""
@@ -140,8 +149,12 @@ class LangGraphAgent():
                 self.MODE
             )
 
+            # set up retrieval chain
+            self.retrival_chain = self.retrival_chains[self.retriever_mode.value]
+            self.retriever_wrapper = create_retrieval_tool(self.rag_chain)
+
             # set up tools belt
-            self.tool_belt = get_tools(self.retrival_chains[self.retriever_mode.value])
+            self.tool_belt = get_tools()
 
             # set up memory
             self.memory = MemorySaver()
@@ -155,11 +168,13 @@ class LangGraphAgent():
             self.tool_node = ToolNode(self.tool_belt)
 
             # set up nodes and edges
+            graph.add_node("prefetch", self._prefetch_node)
             graph.add_node("agent", self._call_model)
             graph.add_node("action", self.tool_node)
             graph.set_entry_point("agent")
             graph.add_conditional_edges("agent", self._should_continue,  {"action": "action", END: END})
             graph.add_edge("action", "agent")
+            graph.add_edge("prefetch", "agent")
 
             self.agent_graph = graph.compile(checkpointer=self.memory)
 
@@ -167,47 +182,124 @@ class LangGraphAgent():
             print(f"Error in initialization: {str(e)}") 
             raise HTTPException(status_code=500, detail=f"Failed to initialize Agent and dependencies: {str(e)}")
 
-    async def chat(self, user_message: str, config_thread: dict):
-        """Chat loop entrypoint"""
-        try:
 
-            force_message = "Use your RAG tool or web search tool to get context to asnwer my question"
+    async def chat(self, user_message: str, config_thread: dict):
+        """Chat loop entrypoint with streaming support"""
+        try:
+            force_message = "Use your RAG tool or web search tool to get context to answer my question"
             sys_msg = SystemMessage(content=SYSTEM_PROMPT)
-            user_msg =  HumanMessage(content=user_message + " " + force_message)
+            user_msg = HumanMessage(content=user_message + " " + force_message)
 
             inputs: AgentState = {
                 "query": user_message,
-                "current_messages": [sys_msg, user_msg],
+                "messages": [sys_msg, user_msg],
+                "response": ""
+            }
+
+            # Return a generator for streaming
+            async def stream_response():
+                final_response = ""
+                tool_calls = []
+                final_messages = []
+                
+                if self.agent_graph:
+                    async for chunk in self.agent_graph.astream(inputs, stream_mode="updates", config=config_thread):
+                        for node, values in chunk.items():
+                            # Stream each update as it happens
+                            if "messages" in values:
+                                for msg in values["messages"]:
+                                    final_messages.append(msg)
+                                    # Extract tool calls if they exist in AssistantMessage
+                                    if hasattr(msg, "tool_calls") and msg.tool_calls:
+                                        tool_calls.extend(msg.tool_calls)
+                                    
+                                    # Stream the message content
+                                    if hasattr(msg, 'content') and msg.content:
+                                        yield {
+                                            "type": "message",
+                                            "content": msg.content,
+                                            "role": msg.__class__.__name__.lower().replace('message', ''),
+                                            "timestamp": str(datetime.now())
+                                        }
+                            
+                            if "response" in values:
+                                final_response = values["response"]
+                                # Stream the response
+                                if final_response:
+                                    yield {
+                                        "type": "response",
+                                        "content": final_response,
+                                        "timestamp": str(datetime.now())
+                                    }
+                            
+                            # Stream tool call information
+                            if "action" in node and tool_calls:
+                                yield {
+                                    "type": "tool_call",
+                                    "content": {
+                                        "tool_calls": tool_calls,
+                                        "node": node
+                                    },
+                                    "timestamp": str(datetime.now())
+                                }
+                
+                # Final summary
+                yield {
+                    "type": "final",
+                    "content": {
+                        "response": final_response or "I apologize, but I couldn't generate a response.",
+                        "messages": len(final_messages),
+                        "tool_calls": len(tool_calls),
+                        "metadata": {
+                            "model": "gpt-4.1-mini",
+                            "total_messages": len(final_messages),
+                            "total_tool_calls": len(tool_calls),
+                            "system_message_used": True
+                        }
+                    },
+                    "timestamp": str(datetime.now())
+                }
+
+            return stream_response()
+
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to generate response: {str(e)}")
+
+    async def chat_non_streaming(self, user_message: str, config_thread: dict):
+        """Non-streaming version for backward compatibility"""
+        try:
+            force_message = "Use your RAG tool or web search tool to get context to answer my question"
+            sys_msg = SystemMessage(content=SYSTEM_PROMPT)
+            user_msg = HumanMessage(content=user_message + " " + force_message)
+
+            inputs: AgentState = {
+                "query": user_message,
+                "messages": [sys_msg, user_msg],
                 "response": ""
             }
 
             final_response = ""
             tool_calls = []
-            final_current_messages = []
-            final_context = {}
+            final_messages = []
 
             if self.agent_graph:
                 async for chunk in self.agent_graph.astream(inputs, stream_mode="updates", config=config_thread):
-                    for node, values in chunk.items():
-                        if "current_messages" in values:
-                            for msg in values["current_messages"]:
-                                final_current_messages.append(msg)
-                                # Extract tool calls if they exist in AssistantMessage
+                    for _, values in chunk.items(): # node, values -> node not used
+                        if "messages" in values:
+                            for msg in values["messages"]:
+                                final_messages.append(msg)
                                 if hasattr(msg, "tool_calls") and msg.tool_calls:
                                     tool_calls.extend(msg.tool_calls)
                         if "response" in values:
                             final_response = values["response"]
-                        if "context" in values:
-                            final_context = values["context"]
 
             return {
                 "response": final_response or "I apologize, but I couldn't generate a response.",
-                "messages": final_current_messages,
+                "messages": final_messages,
                 "tool_calls": tool_calls,
-                "context": final_context,
                 "metadata": {
                     "model": "gpt-4.1-mini",
-                    "total_messages": len(final_current_messages),
+                    "total_messages": len(final_messages),
                     "total_tool_calls": len(tool_calls),
                     "system_message_used": True
                 },
