@@ -194,9 +194,9 @@ class LangGraphAgent:
 
     def _router_node(self, state: AgentState):
         """Router node to determine the next node to execute"""
-        if "query" not in state:
+        if state.get("query") is None:
             raise HTTPException(status_code=400, detail="Query not found in state")
-            
+        
         formatted_prompt = router_prompt_template.format_messages(query=state["query"])
         sys_msg = SystemMessage(content=formatted_prompt)
         
