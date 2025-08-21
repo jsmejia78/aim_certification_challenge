@@ -60,3 +60,13 @@ def get_rag_prompt():
     rag_prompt = ChatPromptTemplate.from_template(RAG_TEMPLATE)
 
     return rag_prompt
+
+
+# Create a prompt template with query as a parameter
+router_prompt_template = ChatPromptTemplate.from_template("""
+You are an intelligent, compassionate, and empathetic positive discipline coach companion.
+
+User Query: {query}
+
+Please provide a helpful response based on the query above.
+""")

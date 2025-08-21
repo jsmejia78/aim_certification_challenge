@@ -14,7 +14,7 @@ from enum import Enum
 
 from langgraph.prebuilt import ToolNode
 
-from prompts import SYSTEM_PROMPT
+from prompts import SYSTEM_PROMPT, router_prompt_template
 from tools import get_tools, create_retrieval_tool
 from retrievers import get_retrieval_chains_and_wrappers
 from vector_stores import VectorStoresManager
@@ -36,6 +36,7 @@ class AgentState(TypedDict):
     query: str
     messages: Annotated[List[BaseMessage], add_messages]
     response: str
+    last_router_response: str
 
 # ----------------------------------------
 # Main Agent Class
@@ -137,6 +138,7 @@ class LangGraphAgent:
     def _setup_model(self):
         """Setup the language model with tools"""
         self.react_model = ChatOpenAI(model="gpt-4.1-mini", temperature=0.7).bind_tools(self.tool_belt)
+        self.router_model = ChatOpenAI(model="gpt-4.1-mini", temperature=0.7)
 
     # ----------------------------------------
     # Node Definitions
@@ -185,7 +187,50 @@ class LangGraphAgent:
             last_message = state["messages"][-1]
             if getattr(last_message, "tool_calls", None):
                 return "action"
+            return "bridge_chat"
+        except Exception as e:
+            print(f"Error in _should_continue: {str(e)}")
             return END
+
+    def _router_node(self, state: AgentState):
+        """Router node to determine the next node to execute"""
+        if "query" not in state:
+            raise HTTPException(status_code=400, detail="Query not found in state")
+            
+        formatted_prompt = router_prompt_template.format_messages(query=state["query"])
+        sys_msg = SystemMessage(content=formatted_prompt)
+        
+        output = self.router_model.invoke(sys_msg)
+        
+        return {
+            "last_router_response": output.content
+        }
+
+    def _bridge_chat_node(self, state: AgentState):
+        """Bridge chat node to bridge the chat"""
+        if "CLARIFY" in state["last_router_response"]:
+            clarifying_question = state["last_router_response"].split("::")[1]
+            return {
+                "messages": [AIMessage(content=clarifying_question)]
+            }
+        
+        # For non-clarifying cases, return minimal state update
+        return {
+            "messages": []  # Empty messages list to maintain state consistency
+        }
+
+
+    def _router_next(self, state: AgentState):
+        """Route to tools if the last message has tool calls."""
+        try:    
+            if "CONTEXT" in state["last_router_response"]:
+                return "prefetch"
+            elif "CONTINUE" in state["last_router_response"]:
+                return "agent"
+            elif "CLARIFY" in state["last_router_response"]:
+                return "bridge_chat"
+            else:
+                return END
         except Exception as e:
             print(f"Error in _should_continue: {str(e)}")
             return END
@@ -197,18 +242,32 @@ class LangGraphAgent:
     def _setup_graph(self):
         """Setup and compile the LangGraph workflow"""
         graph = StateGraph(AgentState, name="companion-agent-graph")
-
+        
         # Set up tool node
         self.tool_node = ToolNode(self.tool_belt)
-
+        
         # Set up nodes and edges
+        graph.add_node("router", self._router_node)
         graph.add_node("prefetch", self._prefetch_node)
         graph.add_node("agent", self._call_model)
         graph.add_node("action", self.tool_node)
-        graph.set_entry_point("prefetch")  # Start with prefetch
-        graph.add_edge("prefetch", "agent")  # Prefetch -> Agent
-        graph.add_conditional_edges("agent", self._should_continue,  {"action": "action", END: END})
+        graph.add_node("bridge_chat", self._bridge_chat_node)
+        
+        # Fix: Start with router, not prefetch
+        graph.set_entry_point("router")
+        graph.add_conditional_edges("router", self._router_next, {
+            "prefetch": "prefetch", 
+            "agent": "agent", 
+            "bridge_chat": "bridge_chat"
+        })
+        graph.add_edge("prefetch", "agent")
+        graph.add_conditional_edges("agent", self._should_continue, {
+            "action": "action", 
+            "bridge_chat": "bridge_chat"
+        })
         graph.add_edge("action", "agent")
+        graph.add_edge("bridge_chat", END)
+        
 
         self.agent_graph = graph.compile(checkpointer=self.memory)
 
@@ -225,7 +284,8 @@ class LangGraphAgent:
             inputs: AgentState = {
                 "query": user_message,
                 "messages": [sys_msg, user_msg],
-                "response": ""
+                "response": "",
+                "last_router_response": None
             }
 
             # Return a generator for streaming
