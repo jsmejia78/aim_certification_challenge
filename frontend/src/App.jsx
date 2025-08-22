@@ -187,55 +187,78 @@ export default function App() {
           const lines = buffer.split('\n');
           buffer = lines.pop() || '';
           
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              try {
-                const data = JSON.parse(line.slice(6));
+                     for (const line of lines) {
+             if (line.startsWith('data: ')) {
+               try {
+                 const data = JSON.parse(line.slice(6));
+                 console.log('Received streaming data:', data); // Debug log
+                 console.log('Data type:', data.type); // Debug log
+                 console.log('Data content:', data.content); // Debug log
                 
-                // Update conversation based on streaming data type
-                setConversation(prev => {
-                  const newConversation = [...prev];
-                  let lastMessage = newConversation[newConversation.length - 1];
-                  
-                  // Check if we need to create the assistant message for the first time
-                  const needsAssistantMessage = !lastMessage || lastMessage.type !== "assistant";
-                  
-                  if (needsAssistantMessage && (data.type === "message" || data.type === "response")) {
-                    // Create assistant message on first streaming content
-                    const assistantMsg = { 
-                      type: "assistant", 
-                      content: "", 
-                      timestamp: new Date(),
-                      context: {},
-                      isStreaming: true,
-                      tool_calls: [],
-                      metadata: null
-                    };
-                    newConversation.push(assistantMsg);
-                    lastMessage = assistantMsg;
-                  }
-                  
-                  if (data.type === "message" && lastMessage && lastMessage.type === "assistant") {
-                    // Append message content
-                    lastMessage.content += data.content;
-                  } else if (data.type === "response" && lastMessage && lastMessage.type === "assistant") {
-                    // Update response content
-                    lastMessage.content = data.content;
-                  } else if (data.type === "tool_call" && lastMessage && lastMessage.type === "assistant") {
-                    // Update tool calls
-                    lastMessage.tool_calls = data.content.tool_calls;
-                    lastMessage.context = { ...lastMessage.context, tool_calls: data.content.tool_calls };
-                  } else if (data.type === "final" && lastMessage && lastMessage.type === "assistant") {
-                    // Final update with metadata
-                    lastMessage.isStreaming = false;
-                    lastMessage.metadata = data.content.metadata;
-                    lastMessage.tool_calls = data.content.tool_calls || [];
-                    // End streaming mode - allow user to scroll
-                    setIsStreaming(false);
-                  }
-                  
-                  return newConversation;
-                });
+                                 // Update conversation based on streaming data type
+                 setConversation(prev => {
+                   const newConversation = [...prev];
+                   let lastMessageIndex = newConversation.length - 1;
+                   
+                   // Check if we need to create the assistant message for the first time
+                   const needsAssistantMessage = lastMessageIndex < 0 || newConversation[lastMessageIndex].type !== "assistant";
+                   
+                   if (needsAssistantMessage && (data.type === "message" || data.type === "response")) {
+                     // Create assistant message on first streaming content
+                     const assistantMsg = { 
+                       type: "assistant", 
+                       content: "", 
+                       timestamp: new Date(),
+                       context: {},
+                       isStreaming: true,
+                       tool_calls: [],
+                       metadata: null
+                     };
+                     newConversation.push(assistantMsg);
+                     lastMessageIndex = newConversation.length - 1;
+                     console.log('Created new assistant message'); // Debug log
+                   }
+                   
+                   if (lastMessageIndex >= 0 && newConversation[lastMessageIndex].type === "assistant") {
+                     const lastMessage = newConversation[lastMessageIndex];
+                     
+                     if (data.type === "message") {
+                       // Append message content
+                       newConversation[lastMessageIndex] = {
+                         ...lastMessage,
+                         content: lastMessage.content + data.content
+                       };
+                       console.log('Appended content:', data.content); // Debug log
+                     } else if (data.type === "response") {
+                       // Update response content
+                       newConversation[lastMessageIndex] = {
+                         ...lastMessage,
+                         content: data.content
+                       };
+                       console.log('Updated response content:', data.content); // Debug log
+                     } else if (data.type === "tool_call") {
+                       // Update tool calls
+                       newConversation[lastMessageIndex] = {
+                         ...lastMessage,
+                         tool_calls: data.content.tool_calls,
+                         context: { ...lastMessage.context, tool_calls: data.content.tool_calls }
+                       };
+                     } else if (data.type === "final") {
+                       // Final update with metadata
+                       newConversation[lastMessageIndex] = {
+                         ...lastMessage,
+                         isStreaming: false,
+                         metadata: data.content.metadata,
+                         tool_calls: data.content.tool_calls || []
+                       };
+                       // End streaming mode - allow user to scroll
+                       setIsStreaming(false);
+                       console.log('Final message received, streaming ended'); // Debug log
+                     }
+                   }
+                   
+                   return newConversation;
+                 });
               } catch (parseError) {
                 console.error('Error parsing streaming data:', parseError);
               }
@@ -424,45 +447,47 @@ export default function App() {
               </div>
             </div>
             
-            <div style={{ 
-              display: "flex", 
-              alignItems: "center", 
-              gap: "1rem",
-              flexShrink: 0
-            }}>
-              <button
-                onClick={clearConversation}
-                disabled={clearing}
-                style={{
-                  padding: "0.5rem 1rem",
-                  background: "rgba(255,255,255,0.2)",
-                  border: "1px solid rgba(255,255,255,0.3)",
-                  borderRadius: "8px",
-                  color: "white",
-                  cursor: clearing ? "not-allowed" : "pointer",
-                  fontSize: "0.875rem",
-                  opacity: clearing ? 0.7 : 1
-                }}
-              >
-                {clearing ? (
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                    <div style={{
-                      width: "20px",
-                      height: "20px",
-                      border: "2px solid #e5e7eb",
-                      borderTop: "2px solid #3b82f6",
-                      borderRadius: "50%",
-                      animation: "spin 1s linear infinite"
-                    }}></div>
-                    Clearing...
-                  </div>
-                ) : (
-                  <>
-                    🗑️ <span className="button-text">Clear Chat</span>
-                  </>
-                )}
-              </button>
-            </div>
+                         <div style={{ 
+               display: "flex", 
+               alignItems: "center", 
+               gap: "1rem",
+               flexShrink: 0
+             }}>
+               {sessionStarted && conversation.length > 0 && (
+                 <button
+                   onClick={clearConversation}
+                   disabled={clearing}
+                   style={{
+                     padding: "0.5rem 1rem",
+                     background: "rgba(255,255,255,0.2)",
+                     border: "1px solid rgba(255,255,255,0.3)",
+                     borderRadius: "8px",
+                     color: "white",
+                     cursor: clearing ? "not-allowed" : "pointer",
+                     fontSize: "0.875rem",
+                     opacity: clearing ? 0.7 : 1
+                   }}
+                 >
+                   {clearing ? (
+                     <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                       <div style={{
+                         width: "20px",
+                         height: "20px",
+                         border: "2px solid #e5e7eb",
+                         borderTop: "2px solid #3b82f6",
+                         borderRadius: "50%",
+                         animation: "spin 1s linear infinite"
+                       }}></div>
+                       Clearing...
+                     </div>
+                   ) : (
+                     <>
+                       🗑️ <span className="button-text">Clear Chat</span>
+                     </>
+                   )}
+                 </button>
+               )}
+             </div>
           </div>
 
         {/* Context Popup Modal */}
