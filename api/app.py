@@ -57,6 +57,21 @@ class MoodRequest(BaseModel):
     mood: str      # Mood from the user
     thread_id: str = "1"
 
+# Define the data model for family information
+class ChildInfo(BaseModel):
+    name: str
+    age: int
+    strengths: list[str]
+    growth_areas: list[str]
+
+class FamilyData(BaseModel):
+    mother_name: str
+    father_name: str
+    number_of_kids: int
+    kids_names: list[str]
+    kids_ages: list[int]
+    children: list[ChildInfo]
+
 # Define the main chat endpoint that handles POST requests
 @app.post("/api/chat")
 async def chat(request: ChatRequest):
@@ -95,6 +110,34 @@ async def set_mood(request: MoodRequest):
     
     except Exception as e:
         # Handle any errors that occur during processing
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Define endpoints for family data management
+@app.post("/api/save-family")
+async def save_family_data(request: FamilyData):
+    try:
+        # Save family data to a JSON file
+        family_file_path = "family_data.json"
+        with open(family_file_path, "w") as f:
+            json.dump(request.dict(), f, indent=2)
+        return {"status": "success", "message": "Family data saved successfully"}
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/get-family")
+async def get_family_data():
+    try:
+        # Check if family data file exists
+        family_file_path = "family_data.json"
+        if os.path.exists(family_file_path):
+            with open(family_file_path, "r") as f:
+                family_data = json.load(f)
+            return {"status": "success", "data": family_data}
+        else:
+            return {"status": "not_found", "data": None}
+    
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 # Define a health check endpoint to verify API status

@@ -1,0 +1,27 @@
+{
+  "mother_name": "Rosa",
+  "father_name": "Juan",
+  "number_of_kids": 1,
+  "kids_names": [
+    ""
+  ],
+  "kids_ages": [
+    0
+  ],
+  "children": [
+    {
+      "name": "Juan",
+      "age": 5,
+      "strengths": [
+        "a",
+        "b",
+        "c"
+      ],
+      "growth_areas": [
+        "d",
+        "e",
+        "f"
+      ]
+    }
+  ]
+}

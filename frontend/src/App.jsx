@@ -76,6 +76,22 @@ export default function App() {
   const [showMoodSelection, setShowMoodSelection] = useState(false);
   const [selectedMood, setSelectedMood] = useState(null);
   
+  // Family data management
+  const [showFamilyForm, setShowFamilyForm] = useState(false);
+  const [familyData, setFamilyData] = useState({
+    mother_name: "",
+    father_name: "",
+    number_of_kids: 1,
+    kids_names: [""],
+    kids_ages: [0],
+    children: [{
+      name: "",
+      age: 0,
+      strengths: ["", "", ""],
+      growth_areas: ["", "", ""]
+    }]
+  });
+  
   // Ref for auto-scrolling to latest message
   const chatEndRef = useRef(null);
   const chatContainerRef = useRef(null);
@@ -137,6 +153,26 @@ export default function App() {
       .then((data) => setHealth(data.status === "ok" ? "🟢" : "🔴"))
       .catch(() => setHealth("🔴"));
   }, []);
+
+  // Load family data on mount
+  React.useEffect(() => {
+    loadFamilyData();
+  }, []);
+
+  // Load family data from backend
+  const loadFamilyData = async () => {
+    try {
+      const res = await fetch("/api/get-family");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.status === "success" && data.data) {
+          setFamilyData(data.data);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load family data:', err);
+    }
+  };
 
   // Handle form submit
   const handleSubmit = async (e) => {
@@ -389,6 +425,141 @@ export default function App() {
     return null;
   };
 
+  // Family form handling functions
+  const handleFamilyDataChange = (field, value, childIndex = null, subField = null) => {
+    setFamilyData(prev => {
+      try {
+        const newData = { ...prev };
+        
+        if (childIndex !== null) {
+          // Create a new children array
+          newData.children = [...prev.children];
+          
+          if (subField !== null) {
+            // Handle nested fields like strengths and growth_areas
+            if (field === "strengths" || field === "growth_areas") {
+              // Ensure the child exists and has the required arrays
+              if (!newData.children[childIndex]) {
+                newData.children[childIndex] = {
+                  name: "",
+                  age: 0,
+                  strengths: ["", "", ""],
+                  growth_areas: ["", "", ""]
+                };
+              }
+              
+              // Create a new array for the specific field
+              const newArray = [...newData.children[childIndex][field]];
+              newArray[subField] = value;
+              
+              newData.children[childIndex] = {
+                ...newData.children[childIndex],
+                [field]: newArray
+              };
+            } else {
+              // Handle other child fields
+              newData.children[childIndex] = {
+                ...newData.children[childIndex],
+                [field]: value
+              };
+            }
+          } else {
+            // Handle direct child field updates
+            newData.children[childIndex] = {
+              ...newData.children[childIndex],
+              [field]: value
+            };
+          }
+        } else {
+          // Handle parent-level fields
+          newData[field] = value;
+        }
+        
+        return newData;
+      } catch (error) {
+        console.error('Error in handleFamilyDataChange:', error);
+        // Return the previous state if there's an error
+        return prev;
+      }
+    });
+  };
+
+  const handleNumberOfKidsChange = (newNumber) => {
+    const newNumberInt = Math.max(1, Math.min(10, newNumber)); // Limit between 1-10
+    
+    setFamilyData(prev => {
+      try {
+        const newData = { ...prev };
+        newData.number_of_kids = newNumberInt;
+        
+        // Create new children array
+        newData.children = [...prev.children];
+        
+        // Ensure all children have the required structure
+        for (let i = 0; i < newData.children.length; i++) {
+          if (!newData.children[i]) {
+            newData.children[i] = {
+              name: "",
+              age: 0,
+              strengths: ["", "", ""],
+              growth_areas: ["", "", ""]
+            };
+          } else {
+            // Ensure arrays exist
+            if (!newData.children[i].strengths || newData.children[i].strengths.length !== 3) {
+              newData.children[i].strengths = ["", "", ""];
+            }
+            if (!newData.children[i].growth_areas || newData.children[i].growth_areas.length !== 3) {
+              newData.children[i].growth_areas = ["", "", ""];
+            }
+          }
+        }
+        
+        // Adjust arrays to match new number of kids
+        while (newData.children.length < newNumberInt) {
+          newData.children.push({
+            name: "",
+            age: 0,
+            strengths: ["", "", ""],
+            growth_areas: ["", "", ""]
+          });
+        }
+        while (newData.children.length > newNumberInt) {
+          newData.children.pop();
+        }
+        
+        return newData;
+      } catch (error) {
+        console.error('Error in handleNumberOfKidsChange:', error);
+        return prev;
+      }
+    });
+  };
+
+  const saveFamilyData = async () => {
+    try {
+      const res = await fetch("/api/save-family", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(familyData),
+      });
+      
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`);
+      }
+      
+      const result = await res.json();
+      if (result.status === "success") {
+        setShowFamilyForm(false);
+        // Show success message or toast
+        console.log("Family data saved successfully");
+      }
+    } catch (err) {
+      console.error('Failed to save family data:', err);
+      setError("Failed to save family data. Please try again.");
+    }
+  };
+
   return (
     <ErrorBoundary>
       <div className="chat-container" style={{ 
@@ -453,118 +624,405 @@ export default function App() {
                gap: "1rem",
                flexShrink: 0
              }}>
-               {sessionStarted && conversation.length > 0 && (
-                 <button
-                   onClick={clearConversation}
-                   disabled={clearing}
-                   style={{
-                     padding: "0.5rem 1rem",
-                     background: "rgba(255,255,255,0.2)",
-                     border: "1px solid rgba(255,255,255,0.3)",
-                     borderRadius: "8px",
-                     color: "white",
-                     cursor: clearing ? "not-allowed" : "pointer",
-                     fontSize: "0.875rem",
-                     opacity: clearing ? 0.7 : 1
-                   }}
-                 >
-                   {clearing ? (
-                     <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                       <div style={{
-                         width: "20px",
-                         height: "20px",
-                         border: "2px solid #e5e7eb",
-                         borderTop: "2px solid #3b82f6",
-                         borderRadius: "50%",
-                         animation: "spin 1s linear infinite"
-                       }}></div>
-                       Clearing...
-                     </div>
-                   ) : (
-                     <>
-                       🗑️ <span className="button-text">Clear Chat</span>
-                     </>
-                   )}
-                 </button>
-               )}
+                               {!sessionStarted ? (
+                  <button
+                    onClick={() => setShowFamilyForm(true)}
+                    style={{
+                      padding: "0.5rem 1rem",
+                      background: "rgba(255,255,255,0.2)",
+                      border: "1px solid rgba(255,255,255,0.3)",
+                      borderRadius: "8px",
+                      color: "white",
+                      cursor: "pointer",
+                      fontSize: "0.875rem"
+                    }}
+                  >
+                                         <span style={{ fontSize: "1.2rem" }}>👨‍👩‍👧‍👦</span> <span className="button-text">Family</span>
+                  </button>
+                ) : sessionStarted && conversation.length > 0 && (
+                  <button
+                    onClick={clearConversation}
+                    disabled={clearing}
+                    style={{
+                      padding: "0.5rem 1rem",
+                      background: "rgba(255,255,255,0.2)",
+                      border: "1px solid rgba(255,255,255,0.3)",
+                      borderRadius: "8px",
+                      color: "white",
+                      cursor: clearing ? "not-allowed" : "pointer",
+                      fontSize: "0.875rem",
+                      opacity: clearing ? 0.7 : 1
+                    }}
+                  >
+                    {clearing ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                        <div style={{
+                          width: "20px",
+                          height: "20px",
+                          border: "2px solid #e5e7eb",
+                          borderTop: "2px solid #3b82f6",
+                          borderRadius: "50%",
+                          animation: "spin 1s linear infinite"
+                        }}></div>
+                        Clearing...
+                      </div>
+                    ) : (
+                      <>
+                        🗑️ <span className="button-text">Clear Chat</span>
+                      </>
+                    )}
+                  </button>
+                )}
              </div>
           </div>
 
-        {/* Context Popup Modal */}
-        {showContextPopup && selectedContext && (
-          <div style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: "rgba(0,0,0,0.5)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 1000,
-            padding: "1rem"
-          }}>
-            <div style={{
-              background: "white",
-              borderRadius: "12px",
-              padding: window.innerWidth <= 768 ? "1.5rem" : "2rem",
-              width: "100%",
-              maxWidth: "700px",
-              maxHeight: "80vh",
-              overflow: "auto",
-              boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1)"
-            }}>
-              <div style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                marginBottom: "1.5rem"
-              }}>
-                <h2 style={{ margin: 0, color: "#1f2937" }}>
-                  🔧 Tool Context: {getContextToolType(selectedContext)}
-                </h2>
-                <button
-                  onClick={() => setShowContextPopup(false)}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    fontSize: "1.5rem",
-                    cursor: "pointer",
-                    color: "#6b7280"
-                  }}
-                >
-                  ×
-                </button>
-              </div>
+                 {/* Context Popup Modal */}
+         {showContextPopup && selectedContext && (
+           <div style={{
+             position: "fixed",
+             top: 0,
+             left: 0,
+             right: 0,
+             bottom: 0,
+             background: "rgba(0,0,0,0.5)",
+             display: "flex",
+             alignItems: "center",
+             justifyContent: "center",
+             zIndex: 1000,
+             padding: "1rem"
+           }}>
+             <div style={{
+               background: "white",
+               borderRadius: "12px",
+               padding: window.innerWidth <= 768 ? "1.5rem" : "2rem",
+               width: "100%",
+               maxWidth: "700px",
+               maxHeight: "80vh",
+               overflow: "auto",
+               boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1)"
+             }}>
+               <div style={{
+                 display: "flex",
+                 justifyContent: "space-between",
+                 alignItems: "center",
+                 marginBottom: "1.5rem"
+               }}>
+                 <h2 style={{ margin: 0, color: "#1f2937" }}>
+                   🔧 Tool Context: {getContextToolType(selectedContext)}
+                 </h2>
+                 <button
+                   onClick={() => setShowContextPopup(false)}
+                   style={{
+                     background: "none",
+                     border: "none",
+                     fontSize: "1.5rem",
+                     cursor: "pointer",
+                     color: "#6b7280"
+                   }}
+                 >
+                   ×
+                 </button>
+               </div>
 
-              <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-                <div style={{
-                  background: "#f8fafc",
-                  border: "1px solid #e5e7eb",
-                  borderRadius: "8px",
-                  padding: "1rem"
-                }}>
-                  <div style={{ fontWeight: "600", marginBottom: "0.5rem", color: "#1f2937" }}>
-                    Context Data
-                  </div>
-                  <pre style={{
-                    background: "#f3f4f6",
-                    padding: "1rem",
-                    borderRadius: "4px",
-                    fontSize: "0.75rem",
-                    overflow: "auto",
-                    whiteSpace: "pre-wrap",
-                    border: "1px solid #e5e7eb",
-                    maxHeight: "400px"
-                  }}>
-                    {JSON.stringify(selectedContext, null, 2)}
-                  </pre>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+               <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+                 <div style={{
+                   background: "#f8fafc",
+                   border: "1px solid #e5e7eb",
+                   borderRadius: "8px",
+                   padding: "1rem"
+                 }}>
+                   <div style={{ fontWeight: "600", marginBottom: "0.5rem", color: "#1f2937" }}>
+                     Context Data
+                   </div>
+                   <pre style={{
+                     background: "#f3f4f6",
+                     padding: "1rem",
+                     borderRadius: "4px",
+                     fontSize: "0.75rem",
+                     overflow: "auto",
+                     whiteSpace: "pre-wrap",
+                     border: "1px solid #e5e7eb",
+                     maxHeight: "400px"
+                   }}>
+                     {JSON.stringify(selectedContext, null, 2)}
+                   </pre>
+                 </div>
+               </div>
+             </div>
+           </div>
+         )}
+
+         {/* Family Intake Modal */}
+         {showFamilyForm && (
+           <div style={{
+             position: "fixed",
+             top: 0,
+             left: 0,
+             right: 0,
+             bottom: 0,
+             background: "rgba(0,0,0,0.5)",
+             display: "flex",
+             alignItems: "center",
+             justifyContent: "center",
+             zIndex: 1000,
+             padding: "1rem"
+           }}>
+             <div style={{
+               background: "white",
+               borderRadius: "12px",
+               padding: window.innerWidth <= 768 ? "1.5rem" : "2rem",
+               width: "100%",
+               maxWidth: "900px",
+               maxHeight: "90vh",
+               overflow: "auto",
+               boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1)"
+             }}>
+               <div style={{
+                 display: "flex",
+                 justifyContent: "space-between",
+                 alignItems: "center",
+                 marginBottom: "2rem"
+               }}>
+                 <h2 style={{ margin: 0, color: "#1f2937", fontSize: "1.75rem" }}>
+                   👨‍👩‍👧‍👦 Family Intake
+                 </h2>
+                 <button
+                   onClick={() => setShowFamilyForm(false)}
+                   style={{
+                     background: "none",
+                     border: "none",
+                     fontSize: "1.5rem",
+                     cursor: "pointer",
+                     color: "#6b7280"
+                   }}
+                 >
+                   ×
+                 </button>
+               </div>
+
+               <div style={{ display: "flex", flexDirection: "column", gap: "2rem" }}>
+                 {/* Parent Information */}
+                 <div style={{
+                   background: "#f8fafc",
+                   border: "1px solid #e5e7eb",
+                   borderRadius: "8px",
+                   padding: "1.5rem"
+                 }}>
+                   <h3 style={{ margin: "0 0 1rem 0", color: "#1f2937", fontSize: "1.25rem" }}>
+                     👨‍👩‍👧‍👦 Parent Information
+                   </h3>
+                                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }} className="family-form-grid">
+                       <div>
+                         <label style={{ display: "block", marginBottom: "0.5rem", fontWeight: "500", color: "#374151" }}>
+                           Mother's Name
+                         </label>
+                         <input
+                           type="text"
+                           value={familyData.mother_name}
+                           onChange={(e) => handleFamilyDataChange("mother_name", e.target.value)}
+                           style={{
+                             width: "100%",
+                             padding: "0.75rem",
+                             border: "1px solid #d1d5db",
+                             borderRadius: "6px",
+                             fontSize: "0.875rem"
+                           }}
+                           placeholder="Enter mother's name"
+                         />
+                       </div>
+                       <div>
+                         <label style={{ display: "block", marginBottom: "0.5rem", fontWeight: "500", color: "#374151" }}>
+                           Father's Name
+                         </label>
+                         <input
+                           type="text"
+                           value={familyData.father_name}
+                           onChange={(e) => handleFamilyDataChange("father_name", e.target.value)}
+                           style={{
+                             width: "100%",
+                             padding: "0.75rem",
+                             border: "1px solid #d1d5db",
+                             borderRadius: "6px",
+                             fontSize: "0.875rem"
+                           }}
+                           placeholder="Enter father's name"
+                         />
+                       </div>
+                     </div>
+                 </div>
+
+                 {/* Number of Kids */}
+                 <div style={{
+                   background: "#f8fafc",
+                   border: "1px solid #e5e7eb",
+                   borderRadius: "8px",
+                   padding: "1.5rem"
+                 }}>
+                   <h3 style={{ margin: "0 0 1rem 0", color: "#1f2937", fontSize: "1.25rem" }}>
+                     👶 Number of Children
+                   </h3>
+                   <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+                     <label style={{ fontWeight: "500", color: "#374151" }}>
+                       Number of kids:
+                     </label>
+                                            <input
+                         type="number"
+                         min="1"
+                         max="10"
+                         value={familyData.number_of_kids}
+                         onChange={(e) => handleNumberOfKidsChange(parseInt(e.target.value) || 1)}
+                         style={{
+                           width: "80px",
+                           padding: "0.5rem",
+                           border: "1px solid #d1d5db",
+                           borderRadius: "6px",
+                           fontSize: "0.875rem",
+                           textAlign: "center"
+                         }}
+                         className="family-form-number-input"
+                       />
+                   </div>
+                 </div>
+
+                 {/* Children Information */}
+                 {familyData.children.map((child, index) => (
+                   <div key={index} style={{
+                     background: "#f8fafc",
+                     border: "1px solid #e5e7eb",
+                     borderRadius: "8px",
+                     padding: "1.5rem"
+                   }}>
+                     <h3 style={{ margin: "0 0 1rem 0", color: "#1f2937", fontSize: "1.25rem" }}>
+                       👶 Child {index + 1}
+                     </h3>
+                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "1rem" }} className="family-form-grid">
+                       <div>
+                         <label style={{ display: "block", marginBottom: "0.5rem", fontWeight: "500", color: "#374151" }}>
+                           Name
+                         </label>
+                         <input
+                           type="text"
+                           value={child.name}
+                           onChange={(e) => handleFamilyDataChange("name", e.target.value, index)}
+                           style={{
+                             width: "100%",
+                             padding: "0.75rem",
+                             border: "1px solid #d1d5db",
+                             borderRadius: "6px",
+                             fontSize: "0.875rem"
+                           }}
+                           placeholder="Enter child's name"
+                         />
+                       </div>
+                       <div>
+                         <label style={{ display: "block", marginBottom: "0.5rem", fontWeight: "500", color: "#374151" }}>
+                           Age
+                         </label>
+                         <input
+                           type="number"
+                           min="0"
+                           max="18"
+                           value={child.age}
+                           onChange={(e) => handleFamilyDataChange("age", parseInt(e.target.value) || 0, index)}
+                           style={{
+                             width: "100%",
+                             padding: "0.75rem",
+                             border: "1px solid #d1d5db",
+                             borderRadius: "6px",
+                             fontSize: "0.875rem"
+                           }}
+                           placeholder="Enter age"
+                         />
+                       </div>
+                     </div>
+
+                     {/* Strengths */}
+                     <div style={{ marginBottom: "1rem" }}>
+                       <label style={{ display: "block", marginBottom: "0.5rem", fontWeight: "500", color: "#374151" }}>
+                         🌟 3 Strengths
+                       </label>
+                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.5rem" }} className="family-form-strengths-grid">
+                         {child.strengths.map((strength, strengthIndex) => (
+                           <input
+                             key={strengthIndex}
+                             type="text"
+                             value={strength}
+                             onChange={(e) => handleFamilyDataChange("strengths", e.target.value, index, strengthIndex)}
+                             style={{
+                               padding: "0.5rem",
+                               border: "1px solid #d1d5db",
+                               borderRadius: "6px",
+                               fontSize: "0.875rem"
+                             }}
+                             placeholder={`Strength ${strengthIndex + 1}`}
+                           />
+                         ))}
+                       </div>
+                     </div>
+
+                     {/* Growth Areas */}
+                     <div>
+                       <label style={{ display: "block", marginBottom: "0.5rem", fontWeight: "500", color: "#374151" }}>
+                         📈 3 Growth Areas
+                       </label>
+                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.5rem" }} className="family-form-growth-grid">
+                         {child.growth_areas.map((area, areaIndex) => (
+                           <input
+                             key={areaIndex}
+                             type="text"
+                             value={area}
+                             onChange={(e) => handleFamilyDataChange("growth_areas", e.target.value, index, areaIndex)}
+                             style={{
+                               padding: "0.5rem",
+                               border: "1px solid #d1d5db",
+                               borderRadius: "6px",
+                               fontSize: "0.875rem"
+                             }}
+                             placeholder={`Growth area ${areaIndex + 1}`}
+                           />
+                         ))}
+                       </div>
+                     </div>
+                   </div>
+                 ))}
+
+                 {/* Action Buttons */}
+                 <div style={{ display: "flex", gap: "1rem", justifyContent: "flex-end" }}>
+                   <button
+                     onClick={() => setShowFamilyForm(false)}
+                     style={{
+                       padding: "0.75rem 1.5rem",
+                       background: "#6b7280",
+                       color: "white",
+                       border: "none",
+                       borderRadius: "8px",
+                       cursor: "pointer",
+                       fontSize: "0.875rem",
+                       fontWeight: "500"
+                     }}
+                   >
+                     Cancel
+                   </button>
+                   <button
+                     onClick={saveFamilyData}
+                     style={{
+                       padding: "0.75rem 1.5rem",
+                       background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                       color: "white",
+                       border: "none",
+                       borderRadius: "8px",
+                       cursor: "pointer",
+                       fontSize: "0.875rem",
+                       fontWeight: "500"
+                     }}
+                   >
+                     💾 Save Family Data
+                   </button>
+                 </div>
+               </div>
+             </div>
+           </div>
+         )}
 
         {/* Chat Container */}
         <div style={{ 
@@ -1021,20 +1479,36 @@ export default function App() {
                 font-size: 1.5rem !important;
               }
               
-              .mood-label {
-                font-size: 0.625rem !important;
-              }
-            }
-            
-            @media (max-width: 480px) {
-              .input-form {
-                flex-direction: column !important;
-              }
-              
-              .send-button {
-                min-height: 40px !important;
-              }
-            }
+                             .mood-label {
+                 font-size: 0.625rem !important;
+               }
+             }
+             
+             @media (max-width: 480px) {
+               .input-form {
+                 flex-direction: column !important;
+               }
+               
+               .send-button {
+                 min-height: 40px !important;
+               }
+             }
+             
+             /* Family form responsive styles */
+             @media (max-width: 768px) {
+               .family-form-grid {
+                 grid-template-columns: 1fr !important;
+               }
+               
+               .family-form-strengths-grid,
+               .family-form-growth-grid {
+                 grid-template-columns: 1fr !important;
+               }
+               
+               .family-form-number-input {
+                 width: 100% !important;
+               }
+             }
           `}
         </style>
         </div>
