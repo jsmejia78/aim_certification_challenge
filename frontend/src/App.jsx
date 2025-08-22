@@ -71,6 +71,11 @@ export default function App() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [questionSubmitted, setQuestionSubmitted] = useState(false);
   
+  // Session and mood management
+  const [sessionStarted, setSessionStarted] = useState(false);
+  const [showMoodSelection, setShowMoodSelection] = useState(false);
+  const [selectedMood, setSelectedMood] = useState(null);
+  
   // Ref for auto-scrolling to latest message
   const chatEndRef = useRef(null);
   const chatContainerRef = useRef(null);
@@ -288,6 +293,9 @@ export default function App() {
   const clearConversation = async () => {
     setClearing(true);
     setConversation([]);
+    setSessionStarted(false);
+    setShowMoodSelection(false);
+    setSelectedMood(null);
     
     // Also clear the agent's memory
     try {
@@ -300,6 +308,48 @@ export default function App() {
       // Don't show error to user - clearing chat still works locally
     } finally {
       setClearing(false);
+    }
+  };
+
+  // Start new session
+  const startNewSession = () => {
+    setSessionStarted(true);
+    setShowMoodSelection(true);
+    setConversation([]);
+    setSelectedMood(null);
+  };
+
+  // Handle mood selection
+  const handleMoodSelection = async (mood) => {
+    setSelectedMood(mood);
+    setShowMoodSelection(false);
+    
+    try {
+      // Send mood to backend
+      const res = await fetch("/api/set-mood", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mood: mood,
+          thread_id: "1"
+        }),
+      });
+      
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`);
+      }
+      
+      // Add welcome message and mood selection to conversation
+      const welcomeMsg = { 
+        type: "assistant", 
+        content: "How can I help you today?", 
+        timestamp: new Date() 
+      };
+      setConversation([welcomeMsg]);
+      
+    } catch (err) {
+      console.error('Failed to set mood:', err);
+      setError("Failed to set mood. Please try again.");
     }
   };
 
@@ -357,13 +407,13 @@ export default function App() {
               flex: 1,
               minWidth: "200px"
             }}>
-              <h1 className="header-title" style={{ 
-                margin: 0, 
-                fontSize: "1.5rem", 
-                fontWeight: "600" 
-              }}>
-                🤖 ParentALL.ai
-              </h1>
+                             <h1 className="header-title" style={{ 
+                 margin: 0, 
+                 fontSize: "1.5rem", 
+                 fontWeight: "600" 
+               }}>
+                 <span style={{ fontSize: "2rem" }}>🌻</span> ParentALL.ai
+               </h1>
               <div style={{ 
                 display: "flex", 
                 alignItems: "center", 
@@ -509,15 +559,109 @@ export default function App() {
               background: "#ffffff"
             }}
           >
-            {conversation.length === 0 ? (
+            {!sessionStarted ? (
               <div style={{ 
                 textAlign: "center", 
                 color: "#6b7280", 
                 fontSize: "1.1rem",
                 marginTop: "2rem"
               }}>
-                <div style={{ fontSize: "3rem", marginBottom: "1rem" }}>🤖</div>
-                <div>Start a conversation with ParentALL.ai!</div>
+                <div style={{ fontSize: "3rem", marginBottom: "1rem" }}>🌻</div>
+                <div>Welcome to ParentALL.ai!</div>
+                <div style={{ fontSize: "0.875rem", marginTop: "0.5rem", marginBottom: "2rem" }}>
+                  Click the button below to start a new session
+                </div>
+                <button
+                  onClick={startNewSession}
+                  style={{
+                    padding: "1rem 2rem",
+                    background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "12px",
+                    fontSize: "1.1rem",
+                    fontWeight: "600",
+                    cursor: "pointer",
+                    boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)"
+                  }}
+                >
+                  New Session
+                </button>
+              </div>
+            ) : showMoodSelection ? (
+              <div style={{ 
+                textAlign: "center", 
+                color: "#6b7280", 
+                fontSize: "1.1rem",
+                marginTop: "2rem"
+              }}>
+                <div style={{ fontSize: "2rem", marginBottom: "1rem" }}>😊</div>
+                <div style={{ fontSize: "1.2rem", marginBottom: "2rem", color: "#1f2937" }}>
+                  Hello there, how are you feeling today?
+                </div>
+                <div style={{ 
+                  display: "grid", 
+                  gridTemplateColumns: "repeat(auto-fit, minmax(80px, 1fr))",
+                  gap: "1rem",
+                  maxWidth: "500px",
+                  margin: "0 auto"
+                }} className="mood-grid">
+                  {[
+                    { emoji: "😡", mood: "very upset", label: "Very Upset" },
+                    { emoji: "😭", mood: "very sad", label: "Very Sad" },
+                    { emoji: "😢", mood: "sad", label: "Sad" },
+                    { emoji: "😐", mood: "neutral", label: "Neutral" },
+                    { emoji: "🙂", mood: "happy", label: "Happy" },
+                    { emoji: "😃", mood: "very happy", label: "Very Happy" },
+                    { emoji: "🤩", mood: "elated", label: "Elated" }
+                  ].map((moodOption) => (
+                    <button
+                      key={moodOption.mood}
+                      onClick={() => handleMoodSelection(moodOption.mood)}
+                      className="mood-button"
+                      style={{
+                        padding: "1rem",
+                        background: "white",
+                        border: "2px solid #e5e7eb",
+                        borderRadius: "12px",
+                        fontSize: "2rem",
+                        cursor: "pointer",
+                        transition: "all 0.2s ease",
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        gap: "0.5rem"
+                      }}
+                      onMouseEnter={(e) => {
+                        e.target.style.borderColor = "#667eea";
+                        e.target.style.transform = "translateY(-2px)";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.target.style.borderColor = "#e5e7eb";
+                        e.target.style.transform = "translateY(0)";
+                      }}
+                    >
+                      <span>{moodOption.emoji}</span>
+                      <span style={{ 
+                        fontSize: "0.75rem", 
+                        color: "#6b7280",
+                        fontWeight: "500"
+                      }} className="mood-label">
+                        {moodOption.label}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+                         ) : conversation.length === 0 ? (
+               <div style={{ 
+                 textAlign: "center", 
+                 color: "#6b7280", 
+                 fontSize: "1.1rem",
+                 marginTop: "2rem"
+               }}>
+                                   <div style={{ fontSize: "3rem", marginBottom: "1rem" }}>🌻</div>
+                  <div>Start a conversation with ParentALL.ai!</div>
                 <div style={{ fontSize: "0.875rem", marginTop: "0.5rem" }}>
                   Ready to chat
                 </div>
@@ -555,7 +699,7 @@ export default function App() {
                       alignItems: "center",
                       gap: "0.5rem"
                     }}>
-                      {msg.type === "user" ? "👤 You" : "🤖 ParentALL.ai"}
+                      {msg.type === "user" ? "👤 You" : "🌻 ParentALL.ai"}
                       <span>{msg.timestamp.toLocaleTimeString()}</span>
                     </div>
                     <div style={{ lineHeight: "1.6" }}>
@@ -712,65 +856,67 @@ export default function App() {
         </div>
 
         {/* Input Form */}
-        <div className="input-form-padding" style={{ 
-          background: "#ffffff",
-          borderTop: "1px solid #e5e7eb",
-          padding: "1rem 2rem",
-          borderBottomLeftRadius: "12px",
-          borderBottomRightRadius: "12px"
-        }}>
-          <form onSubmit={handleSubmit} className="input-form" style={{ 
-            display: "flex", 
-            gap: "1rem",
-            flexDirection: "row"
+        {sessionStarted && !showMoodSelection && (
+          <div className="input-form-padding" style={{ 
+            background: "#ffffff",
+            borderTop: "1px solid #e5e7eb",
+            padding: "1rem 2rem",
+            borderBottomLeftRadius: "12px",
+            borderBottomRightRadius: "12px"
           }}>
-            <div style={{ flex: 1 }}>
-              <textarea
-                value={userMessage}
-                onChange={(e) => setUserMessage(e.target.value)}
-                placeholder="Type your message..."
-                rows="3"
-                className="input-textarea"
+            <form onSubmit={handleSubmit} className="input-form" style={{ 
+              display: "flex", 
+              gap: "1rem",
+              flexDirection: "row"
+            }}>
+              <div style={{ flex: 1 }}>
+                <textarea
+                  value={userMessage}
+                  onChange={(e) => setUserMessage(e.target.value)}
+                  placeholder="Type your message..."
+                  rows="3"
+                  className="input-textarea"
+                  style={{
+                    width: "100%",
+                    padding: "0.75rem",
+                    border: "1px solid #d1d5db",
+                    borderRadius: "8px",
+                    fontSize: "0.875rem",
+                    resize: "vertical",
+                    minHeight: "60px",
+                    boxSizing: "border-box"
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSubmit(e);
+                    }
+                  }}
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={loading || !userMessage.trim()}
+                className="send-button"
                 style={{
-                  width: "100%",
-                  padding: "0.75rem",
-                  border: "1px solid #d1d5db",
+                  padding: "0.75rem 1.5rem",
+                  background: (loading || !userMessage.trim()) ? "#94a3b8" : "#3b82f6",
+                  color: "white",
+                  border: "none",
                   borderRadius: "8px",
+                  cursor: (loading || !userMessage.trim()) ? "not-allowed" : "pointer",
                   fontSize: "0.875rem",
-                  resize: "vertical",
-                  minHeight: "60px",
-                  boxSizing: "border-box"
+                  fontWeight: "500",
+                  whiteSpace: "nowrap",
+                  opacity: (loading || !userMessage.trim()) ? 0.5 : 1,
+                  minHeight: "auto"
                 }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSubmit(e);
-                  }
-                }}
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={loading || !userMessage.trim()}
-              className="send-button"
-              style={{
-                padding: "0.75rem 1.5rem",
-                background: (loading || !userMessage.trim()) ? "#94a3b8" : "#3b82f6",
-                color: "white",
-                border: "none",
-                borderRadius: "8px",
-                cursor: (loading || !userMessage.trim()) ? "not-allowed" : "pointer",
-                fontSize: "0.875rem",
-                fontWeight: "500",
-                whiteSpace: "nowrap",
-                opacity: (loading || !userMessage.trim()) ? 0.5 : 1,
-                minHeight: "auto"
-              }}
-            >
-              {loading ? "Sending..." : "Send"}
-            </button>
-          </form>
-        </div>
+              >
+                {loading ? "Sending..." : "Send"}
+              </button>
+            </form>
+          </div>
+        )}
 
         {/* Add CSS animation for loading spinner and responsive styles */}
         <style>
@@ -836,6 +982,22 @@ export default function App() {
               
               .button-text {
                 display: none !important;
+              }
+              
+              /* Mood selection responsive styles */
+              .mood-grid {
+                grid-template-columns: repeat(3, 1fr) !important;
+                gap: 0.5rem !important;
+                max-width: 300px !important;
+              }
+              
+              .mood-button {
+                padding: 0.75rem !important;
+                font-size: 1.5rem !important;
+              }
+              
+              .mood-label {
+                font-size: 0.625rem !important;
               }
             }
             

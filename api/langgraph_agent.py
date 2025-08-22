@@ -53,9 +53,20 @@ class LangGraphAgent:
         self.MODE = MODE
         self.langchain_project_name = langchain_project_name
         
+        # Initialize mood variable
+        self.mood = None
+        
         # Setup environment and initialize immediately
         self._setup_environment()
         self._initialize_components()
+
+    def set_mood(self, mood: str):
+        """Set the current mood of the user"""
+        self.mood = mood
+        
+    def get_mood(self) -> str:
+        """Get the current mood of the user"""
+        return self.mood
 
     def _setup_environment(self):
         """Setup environment variables and validate configuration"""

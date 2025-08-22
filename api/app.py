@@ -52,6 +52,11 @@ class ChatRequest(BaseModel):
     user_message: str      # Message from the user
     thread_id: str = "1"
 
+# Define the data model for mood requests
+class MoodRequest(BaseModel):
+    mood: str      # Mood from the user
+    thread_id: str = "1"
+
 # Define the main chat endpoint that handles POST requests
 @app.post("/api/chat")
 async def chat(request: ChatRequest):
@@ -75,6 +80,18 @@ async def chat(request: ChatRequest):
                 "Content-Type": "text/event-stream"
             }
         )
+    
+    except Exception as e:
+        # Handle any errors that occur during processing
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Define an endpoint to set user mood
+@app.post("/api/set-mood")
+async def set_mood(request: MoodRequest):
+    try:
+        # Set the mood in the agent
+        Agent.set_mood(request.mood)
+        return {"status": "mood_set", "mood": request.mood}
     
     except Exception as e:
         # Handle any errors that occur during processing
