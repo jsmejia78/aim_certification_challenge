@@ -129,7 +129,7 @@ class LangGraphAgent:
 
     def _setup_tools(self):
         """Setup tool belt"""
-        self.tool_belt = get_tools()
+        self.tool_belt = get_tools(self.retrival_chain)
 
     def _setup_memory(self):
         """Setup memory manager"""
@@ -138,7 +138,7 @@ class LangGraphAgent:
     def _setup_model(self):
         """Setup the language model with tools"""
         self.react_model = ChatOpenAI(model="gpt-4.1-mini", temperature=0.7).bind_tools(self.tool_belt)
-        self.router_model = ChatOpenAI(model="gpt-4.1-mini", temperature=0.7)
+        self.router_and_bridge_model = ChatOpenAI(model="gpt-4.1-nano", temperature=0.7)
 
     # ----------------------------------------
     # Node Definitions
@@ -197,10 +197,10 @@ class LangGraphAgent:
         if state.get("query") is None:
             raise HTTPException(status_code=400, detail="Query not found in state")
         
-        formatted_prompt = router_prompt_template.format_messages(query=state["query"])
+        formatted_prompt = router_prompt_template.format(query=state["query"])
         sys_msg = SystemMessage(content=formatted_prompt)
         
-        output = self.router_model.invoke(sys_msg)
+        output = self.router_and_bridge_model.invoke([sys_msg])
         
         return {
             "last_router_response": output.content
@@ -211,7 +211,8 @@ class LangGraphAgent:
         if "CLARIFY" in state["last_router_response"]:
             clarifying_question = state["last_router_response"].split("::")[1]
             return {
-                "messages": [AIMessage(content=clarifying_question)]
+                "messages": [AIMessage(content=clarifying_question)],
+                "response": clarifying_question
             }
         
         # For non-clarifying cases, return minimal state update
@@ -263,7 +264,8 @@ class LangGraphAgent:
         graph.add_edge("prefetch", "agent")
         graph.add_conditional_edges("agent", self._should_continue, {
             "action": "action", 
-            "bridge_chat": "bridge_chat"
+            "bridge_chat": "bridge_chat",
+            END:END
         })
         graph.add_edge("action", "agent")
         graph.add_edge("bridge_chat", END)
@@ -293,6 +295,8 @@ class LangGraphAgent:
                 final_response = ""
                 tool_calls = []
                 final_messages = []
+                last_router_response = ""
+
                 
                 if self.agent_graph:
                     async for chunk in self.agent_graph.astream(inputs, stream_mode="updates", config=config_thread):
@@ -312,7 +316,10 @@ class LangGraphAgent:
                                             "type": "message",
                                             "content": msg.content,
                                             "role": "assistant",
-                                            "timestamp": str(datetime.now())
+                                            "timestamp": str(datetime.now()),
+                                            "metadata": {
+                                                "router_response": last_router_response
+                                            }
                                         }
                             
                             # Stream the final response only from agent node
@@ -323,7 +330,10 @@ class LangGraphAgent:
                                     yield {
                                         "type": "response",
                                         "content": final_response,
-                                        "timestamp": str(datetime.now())
+                                        "timestamp": str(datetime.now()),
+                                        "metadata": {
+                                            "router_response": last_router_response
+                                        }
                                     }
                             
                             # Collect all messages from all nodes for final summary (but don't stream them)
@@ -335,6 +345,14 @@ class LangGraphAgent:
                                     if hasattr(msg, "tool_calls") and msg.tool_calls:
                                         tool_calls.extend(msg.tool_calls)
                             
+                            if node == "router" and "last_router_response" in values:
+                                last_router_response = values["last_router_response"]
+                                yield {
+                                    "type": "router_response",
+                                    "content": last_router_response,
+                                    "timestamp": str(datetime.now())
+                                }
+                                
                             # Stream tool call information only when tools are executed
                             if node == "action" and tool_calls:
                                 yield {
@@ -371,4 +389,5 @@ class LangGraphAgent:
     def reset_longer_term_memory(self):
         """Reset the agent's memory"""
         if self.memory:
-            self.memory.clear()
+            # Clear the memory storage directly - keep using same instance
+            self.memory.storage.clear()
