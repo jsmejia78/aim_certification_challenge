@@ -90,6 +90,7 @@ class LangGraphAgent:
             self._setup_tools()
             self._setup_memory()
             self._setup_model()
+            self._setup_guards()
             self._setup_graph()
         except Exception as e:
             print(f"Error in initialization: {str(e)}") 
@@ -150,6 +151,10 @@ class LangGraphAgent:
         """Setup the language model with tools"""
         self.react_model = ChatOpenAI(model="gpt-4.1-mini", temperature=0.7).bind_tools(self.tool_belt)
         self.router_and_bridge_model = ChatOpenAI(model="gpt-4.1-nano", temperature=0.7)
+
+    def _setup_guards(self):
+        """Setup guards"""
+        self.guard_model = ChatOpenAI(model="gpt-4.1-nano", temperature=0.7)
 
     # ----------------------------------------
     # Node Definitions
