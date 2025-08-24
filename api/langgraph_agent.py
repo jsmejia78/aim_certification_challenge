@@ -1,4 +1,5 @@
 import os
+import json
 from typing import List, Dict, Any
 from fastapi import HTTPException
 from datetime import datetime
@@ -14,7 +15,7 @@ from enum import Enum
 
 from langgraph.prebuilt import ToolNode
 
-from prompts import SYSTEM_PROMPT, router_prompt_template
+from prompts import SYSTEM_PROMPT, FAMILY_SYSTEM_PROMPT_TEMPLATE, router_prompt_template
 from tools import get_tools, create_retrieval_tool
 from retrievers import get_retrieval_chains_and_wrappers
 from vector_stores import VectorStoresManager
@@ -52,6 +53,7 @@ class LangGraphAgent:
         self.retriever_mode = retriever_mode
         self.MODE = MODE
         self.langchain_project_name = langchain_project_name
+        self.interaction_count = 0
         
         # Initialize mood variable
         self.mood = None
@@ -67,6 +69,70 @@ class LangGraphAgent:
     def get_mood(self) -> str:
         """Get the current mood of the user"""
         return self.mood
+
+    def generate_family_system_prompt(self, family_data_path: str = "family_data.json") -> str:
+        """
+        Generate a personalized system prompt based on family data and parent mood.
+        
+        Args:
+            family_data_path (str): Path to the family_data.json file
+            
+        Returns:
+            str: Personalized system prompt string
+        """
+        try:
+            # Load family data
+            with open(family_data_path, 'r') as f:
+                family_data = json.load(f)
+            
+            # Extract family information
+            mother_name = family_data.get("mother_name", "the mother")
+            father_name = family_data.get("father_name", "the father")
+            number_of_kids = family_data.get("number_of_kids", 0)
+            children = family_data.get("children", [])
+            
+            # Build children information string
+            children_info = ""
+            if children:
+                children_details = []
+                for child in children:
+                    name = child.get("name", "unnamed child")
+                    age = child.get("age", 0)
+                    strengths = child.get("strengths", [])
+                    growth_areas = child.get("growth_areas", [])
+                    
+                    child_detail = f"{name} (age {age})"
+                    if strengths:
+                        child_detail += f" with strengths in {', '.join(strengths)}"
+                    if growth_areas:
+                        child_detail += f" and areas for growth in {', '.join(growth_areas)}"
+                    
+                    children_details.append(child_detail)
+                
+                children_info = f"Children: {', '.join(children_details)}"
+            else:
+                children_info = f"Number of children: {number_of_kids}"
+            
+            # Get current mood
+            current_mood = self.get_mood() or "neutral"
+            
+            # Generate personalized system prompt using template
+            system_prompt = FAMILY_SYSTEM_PROMPT_TEMPLATE.format(
+                mother_name=mother_name,
+                father_name=father_name,
+                children_info=children_info,
+                current_mood=current_mood
+            )
+            
+            return system_prompt
+            
+        except FileNotFoundError:
+            # Fallback to default system prompt if family data file not found
+            return SYSTEM_PROMPT
+        except Exception as e:
+            print(f"Error generating family system prompt: {str(e)}")
+            # Return default system prompt on any error
+            return SYSTEM_PROMPT
 
     def _setup_environment(self):
         """Setup environment variables and validate configuration"""
@@ -296,16 +362,33 @@ class LangGraphAgent:
     async def chat(self, user_message: str, config_thread: dict):
         """Chat loop entrypoint with streaming support"""
         try:
-            force_message = "Use your RAG tool or web search tool to get context to answer my question"
-            sys_msg = SystemMessage(content=SYSTEM_PROMPT)
-            user_msg = HumanMessage(content=user_message + " " + force_message)
+            # Create user message
+            user_msg = HumanMessage(content=user_message)
 
+            # Always include the user message in inputs
+            # LangGraph will handle conversation state through checkpointing
             inputs: AgentState = {
                 "query": user_message,
-                "messages": [sys_msg, user_msg],
+                "messages": [user_msg],
                 "response": "",
                 "last_router_response": None
             }
+
+            # For first interaction, we need to set the system prompt
+            # This will be handled by the checkpointing system for subsequent interactions
+            if self.interaction_count == 0:
+                # Add system message to the beginning of the conversation
+                sys_msg = SystemMessage(content=self.generate_family_system_prompt())
+                inputs["messages"].insert(0, sys_msg)
+                self.interaction_count += 1
+                print(f"First interaction - System prompt set, interaction_count: {self.interaction_count}")
+            else:
+                print(f"Subsequent interaction - interaction_count: {self.interaction_count}")
+                print(f"Inputs messages count: {len(inputs['messages'])}")
+                # Check if memory is working
+                if hasattr(self, 'memory') and self.memory:
+                    print(f"Memory storage type: {type(self.memory.storage)}")
+                    print(f"Memory storage contents: {self.memory.storage}")
 
             # Return a generator for streaming
             async def stream_response():
@@ -314,89 +397,100 @@ class LangGraphAgent:
                 final_messages = []
                 last_router_response = ""
 
-                
-                if self.agent_graph:
-                    async for chunk in self.agent_graph.astream(inputs, stream_mode="updates", config=config_thread):
-                        for node, values in chunk.items():
-                            # Only stream content from the "agent" node (LLM responses)
-                            # Don't stream prefetch content or tool results
-                            if node == "agent" and "messages" in values:
-                                for msg in values["messages"]:
-                                    final_messages.append(msg)
-                                    # Extract tool calls if they exist in AssistantMessage
-                                    if hasattr(msg, "tool_calls") and msg.tool_calls:
-                                        tool_calls.extend(msg.tool_calls)
-                                    
-                                    # Stream the LLM message content only
-                                    if hasattr(msg, 'content') and msg.content and msg.__class__.__name__ == "AIMessage":
+                try:
+                    print(f"Starting stream_response with inputs: {inputs}")
+                    print(f"Config thread: {config_thread}")
+                    if self.agent_graph:
+                        print("Agent graph exists, starting astream...")
+                        async for chunk in self.agent_graph.astream(inputs, stream_mode="updates", config=config_thread):
+                            for node, values in chunk.items():
+                                # Only stream content from the "agent" node (LLM responses)
+                                # Don't stream prefetch content or tool results
+                                if node == "agent" and "messages" in values:
+                                    for msg in values["messages"]:
+                                        final_messages.append(msg)
+                                        # Extract tool calls if they exist in AssistantMessage
+                                        if hasattr(msg, "tool_calls") and msg.tool_calls:
+                                            tool_calls.extend(msg.tool_calls)
+                                        
+                                        # Stream the LLM message content only
+                                        if hasattr(msg, 'content') and msg.content and msg.__class__.__name__ == "AIMessage":
+                                            yield {
+                                                "type": "message",
+                                                "content": msg.content,
+                                                "role": "assistant",
+                                                "timestamp": str(datetime.now()),
+                                                "metadata": {
+                                                    "router_response": last_router_response
+                                                }
+                                            }
+                                
+                                # Stream the final response only from agent node
+                                if node == "agent" and "response" in values:
+                                    final_response = values["response"]
+                                    # Stream the response
+                                    if final_response:
                                         yield {
-                                            "type": "message",
-                                            "content": msg.content,
-                                            "role": "assistant",
+                                            "type": "response",
+                                            "content": final_response,
                                             "timestamp": str(datetime.now()),
                                             "metadata": {
                                                 "router_response": last_router_response
                                             }
                                         }
-                            
-                            # Stream the final response only from agent node
-                            if node == "agent" and "response" in values:
-                                final_response = values["response"]
-                                # Stream the response
-                                if final_response:
-                                    yield {
-                                        "type": "response",
-                                        "content": final_response,
-                                        "timestamp": str(datetime.now()),
-                                        "metadata": {
-                                            "router_response": last_router_response
-                                        }
-                                    }
-                            
-                            # Collect all messages from all nodes for final summary (but don't stream them)
-                            if "messages" in values:
-                                for msg in values["messages"]:
-                                    if msg not in final_messages:
-                                        final_messages.append(msg)
-                                    # Extract tool calls if they exist
-                                    if hasattr(msg, "tool_calls") and msg.tool_calls:
-                                        tool_calls.extend(msg.tool_calls)
-                            
-                            if node == "router" and "last_router_response" in values:
-                                last_router_response = values["last_router_response"]
-                                yield {
-                                    "type": "router_response",
-                                    "content": last_router_response,
-                                    "timestamp": str(datetime.now())
-                                }
                                 
-                            # Stream tool call information only when tools are executed
-                            if node == "action" and tool_calls:
-                                yield {
-                                    "type": "tool_call",
-                                    "content": {
-                                        "tool_calls": tool_calls,
-                                        "node": node
-                                    },
-                                    "timestamp": str(datetime.now())
-                                }
-                
-                # Final summary
-                yield {
-                    "type": "final",
-                    "content": {
-                        "response": final_response or "I apologize, but I couldn't generate a response.",
-                        "messages": len(final_messages),
-                        "tool_calls": len(tool_calls),
-                        "metadata": {
-                            "model": "gpt-4.1-mini",
-                            "total_messages": len(final_messages),
-                            "total_tool_calls": len(tool_calls),
-                            "system_message_used": True
-                        }
-                    },
-                    "timestamp": str(datetime.now())
-                }
+                                # Collect all messages from all nodes for final summary (but don't stream them)
+                                if "messages" in values:
+                                    for msg in values["messages"]:
+                                        if msg not in final_messages:
+                                            final_messages.append(msg)
+                                        # Extract tool calls if they exist
+                                        if hasattr(msg, "tool_calls") and msg.tool_calls:
+                                            tool_calls.extend(msg.tool_calls)
+                                
+                                if node == "router" and "last_router_response" in values:
+                                    last_router_response = values["last_router_response"]
+                                    yield {
+                                        "type": "router_response",
+                                        "content": last_router_response,
+                                        "timestamp": str(datetime.now())
+                                    }
+                                    
+                                # Stream tool call information only when tools are executed
+                                if node == "action" and tool_calls:
+                                    yield {
+                                        "type": "tool_call",
+                                        "content": {
+                                            "tool_calls": tool_calls,
+                                            "node": node
+                                        },
+                                        "timestamp": str(datetime.now())
+                                    }
+                    
+                    # Final summary
+                    yield {
+                        "type": "final",
+                        "content": {
+                            "response": final_response or "I apologize, but I couldn't generate a response.",
+                            "messages": len(final_messages),
+                            "tool_calls": len(tool_calls),
+                            "metadata": {
+                                "model": "gpt-4.1-mini",
+                                "total_messages": len(final_messages),
+                                "total_tool_calls": len(tool_calls),
+                                "system_message_used": True
+                            }
+                        },
+                        "timestamp": str(datetime.now())
+                    }
+                except Exception as e:
+                    print(f"Error in stream_response: {str(e)}")
+                    # Return error response
+                    yield {
+                        "type": "error",
+                        "content": f"An error occurred while processing your request: {str(e)}",
+                        "timestamp": str(datetime.now())
+                    }
 
             return stream_response()
 
@@ -405,6 +499,7 @@ class LangGraphAgent:
 
     def reset_longer_term_memory(self):
         """Reset the agent's memory"""
+        self.interaction_count = 0
         if self.memory:
             # Clear the memory storage directly - keep using same instance
             self.memory.storage.clear()

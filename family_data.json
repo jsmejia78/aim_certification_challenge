@@ -1,5 +1,5 @@
 {
-  "mother_name": "Rosa",
+  "mother_name": "Silvia",
   "father_name": "Juan",
   "number_of_kids": 1,
   "kids_names": [
@@ -10,17 +10,17 @@
   ],
   "children": [
     {
-      "name": "Juan",
-      "age": 5,
+      "name": "Samuel",
+      "age": 6,
       "strengths": [
-        "a",
-        "b",
-        "c"
+        "Big imagination",
+        "Curious",
+        "Kind"
       ],
       "growth_areas": [
-        "d",
-        "e",
-        "f"
+        "Short temper",
+        "Struggles to manage big feelings",
+        "Patiance"
       ]
     }
   ]
