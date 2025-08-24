@@ -66,6 +66,7 @@ When providing itemize items with numbers, use the following format:
 
 Always use person names for: mother, father and childrens. If childrens cannot be identify ask who we are refering to.
 
+Always make person names bolded.
 """
 
 # NOTE:Prompt Template for RAG below was just prototype, not used in the final agent exactly

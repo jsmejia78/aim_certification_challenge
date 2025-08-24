@@ -53,7 +53,6 @@ class LangGraphAgent:
         self.retriever_mode = retriever_mode
         self.MODE = MODE
         self.langchain_project_name = langchain_project_name
-        self.interaction_count = 0
         
         # Initialize mood variable
         self.mood = None
@@ -375,32 +374,17 @@ class LangGraphAgent:
         """Chat loop entrypoint with streaming support"""
         try:
             # Create user message
+            sys_msg = SystemMessage(content=self.generate_family_system_prompt())
             user_msg = HumanMessage(content=user_message)
 
             # Always include the user message in inputs
             # LangGraph will handle conversation state through checkpointing
             inputs: AgentState = {
                 "query": user_message,
-                "messages": [user_msg],
+                "messages": [sys_msg, user_msg],
                 "response": "",
                 "last_router_response": None
             }
-
-            # For first interaction, we need to set the system prompt
-            # This will be handled by the checkpointing system for subsequent interactions
-            if self.interaction_count == 0:
-                # Add system message to the beginning of the conversation
-                sys_msg = SystemMessage(content=self.generate_family_system_prompt())
-                inputs["messages"].insert(0, sys_msg)
-                self.interaction_count += 1
-                print(f"First interaction - System prompt set, interaction_count: {self.interaction_count}")
-            else:
-                print(f"Subsequent interaction - interaction_count: {self.interaction_count}")
-                print(f"Inputs messages count: {len(inputs['messages'])}")
-                # Check if memory is working
-                if hasattr(self, 'memory') and self.memory:
-                    print(f"Memory storage type: {type(self.memory.storage)}")
-                    print(f"Memory storage contents: {self.memory.storage}")
 
             # Return a generator for streaming
             async def stream_response():
@@ -512,7 +496,6 @@ class LangGraphAgent:
     def reset_longer_term_memory(self):
         """Reset the agent's memory"""
         print(f"Resetting agent memory. Previous feedback: {self.feedback}")
-        self.interaction_count = 0
         self.mood = None
         self.feedback = None
         if self.memory:
