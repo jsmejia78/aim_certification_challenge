@@ -57,6 +57,11 @@ class MoodRequest(BaseModel):
     mood: str      # Mood from the user
     thread_id: str = "1"
 
+# Define the data model for feedback requests
+class FeedbackRequest(BaseModel):
+    feedback: str      # Feedback from the user
+    thread_id: str = "1"
+
 # Define the data model for family information
 class ChildInfo(BaseModel):
     name: str
@@ -110,6 +115,31 @@ async def set_mood(request: MoodRequest):
     
     except Exception as e:
         # Handle any errors that occur during processing
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Define an endpoint to set user feedback
+@app.post("/api/set-feedback")
+async def set_feedback(request: FeedbackRequest):
+    try:
+        # Set the feedback in the agent
+        Agent.set_feedback(request.feedback)
+        print(f"Feedback received and stored: {request.feedback}")
+        return {"status": "feedback_set", "feedback": request.feedback}
+    
+    except Exception as e:
+        # Handle any errors that occur during processing
+        print(f"Error setting feedback: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Define an endpoint to get current feedback (for debugging)
+@app.get("/api/get-feedback")
+async def get_feedback():
+    try:
+        feedback = Agent.get_feedback()
+        return {"status": "success", "feedback": feedback}
+    
+    except Exception as e:
+        print(f"Error getting feedback: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # Define endpoints for family data management

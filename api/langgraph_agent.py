@@ -58,6 +58,9 @@ class LangGraphAgent:
         # Initialize mood variable
         self.mood = None
         
+        # Initialize feedback variable
+        self.feedback = None
+        
         # Setup environment and initialize immediately
         self._setup_environment()
         self._initialize_components()
@@ -69,6 +72,15 @@ class LangGraphAgent:
     def get_mood(self) -> str:
         """Get the current mood of the user"""
         return self.mood
+
+    def set_feedback(self, feedback: str):
+        """Set the feedback from the user about the session"""
+        self.feedback = feedback
+        print(f"Agent feedback set to: {feedback}")
+        
+    def get_feedback(self) -> str:
+        """Get the feedback from the user about the session"""
+        return self.feedback
 
     def generate_family_system_prompt(self, family_data_path: str = "family_data.json") -> str:
         """
@@ -499,7 +511,10 @@ class LangGraphAgent:
 
     def reset_longer_term_memory(self):
         """Reset the agent's memory"""
+        print(f"Resetting agent memory. Previous feedback: {self.feedback}")
         self.interaction_count = 0
+        self.mood = None
+        self.feedback = None
         if self.memory:
             # Clear the memory storage directly - keep using same instance
             self.memory.storage.clear()

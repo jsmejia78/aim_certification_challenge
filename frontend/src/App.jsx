@@ -76,6 +76,10 @@ export default function App() {
   const [showMoodSelection, setShowMoodSelection] = useState(false);
   const [selectedMood, setSelectedMood] = useState(null);
   
+  // Feedback management
+  const [showFeedbackScreen, setShowFeedbackScreen] = useState(false);
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
+  
   // Family data management
   const [showFamilyForm, setShowFamilyForm] = useState(false);
   const [familyData, setFamilyData] = useState({
@@ -350,24 +354,8 @@ export default function App() {
 
   // Clear conversation
   const clearConversation = async () => {
-    setClearing(true);
-    setConversation([]);
-    setSessionStarted(false);
-    setShowMoodSelection(false);
-    setSelectedMood(null);
-    
-    // Also clear the agent's memory
-    try {
-      await fetch("/api/clear-memory", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" }
-      });
-    } catch (err) {
-      console.error('Failed to clear agent memory:', err);
-      // Don't show error to user - clearing chat still works locally
-    } finally {
-      setClearing(false);
-    }
+    // Show feedback screen instead of immediately clearing
+    setShowFeedbackScreen(true);
   };
 
   // Start new session
@@ -409,6 +397,60 @@ export default function App() {
     } catch (err) {
       console.error('Failed to set mood:', err);
       setError("Failed to set mood. Please try again.");
+    }
+  };
+
+  // Handle feedback submission
+  const handleFeedbackSubmission = async (feedback) => {
+    try {
+      // Send feedback to backend
+      const res = await fetch("/api/set-feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          feedback: feedback,
+          thread_id: "1"
+        }),
+      });
+      
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`);
+      }
+      
+      setFeedbackSubmitted(true);
+      
+      // Wait a moment to show success, then return to main page
+      setTimeout(() => {
+        clearSessionAndMemory();
+      }, 1500);
+      
+    } catch (err) {
+      console.error('Failed to submit feedback:', err);
+      setError("Failed to submit feedback. Please try again.");
+    }
+  };
+
+  // Actually clear the session and memory
+  const clearSessionAndMemory = async () => {
+    setClearing(true);
+    
+    try {
+      // Clear the agent's memory
+      await fetch("/api/clear-memory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+    } catch (err) {
+      console.error('Failed to clear agent memory:', err);
+      // Don't show error to user - clearing chat still works locally
+    } finally {
+      setClearing(false);
+      setShowFeedbackScreen(false);
+      setFeedbackSubmitted(false);
+      setSessionStarted(false);
+      setShowMoodSelection(false);
+      setSelectedMood(null);
+      setConversation([]);
     }
   };
 
@@ -1136,7 +1178,83 @@ export default function App() {
                   ))}
                 </div>
               </div>
-                         ) : conversation.length === 0 ? (
+             ) : showFeedbackScreen ? (
+               <div style={{ 
+                 textAlign: "center", 
+                 color: "#6b7280", 
+                 fontSize: "1.1rem",
+                 marginTop: "2rem"
+               }}>
+                 {feedbackSubmitted ? (
+                   <div>
+                     <div style={{ fontSize: "3rem", marginBottom: "1rem" }}>✅</div>
+                     <div style={{ fontSize: "1.2rem", marginBottom: "1rem", color: "#1f2937" }}>
+                       Thank you for your feedback!
+                     </div>
+                     <div style={{ fontSize: "0.875rem", color: "#6b7280" }}>
+                       Returning to main page...
+                     </div>
+                   </div>
+                 ) : (
+                   <>
+                     <div style={{ fontSize: "2rem", marginBottom: "1rem" }}>💭</div>
+                     <div style={{ fontSize: "1.2rem", marginBottom: "2rem", color: "#1f2937" }}>
+                       How helpful was this session?
+                     </div>
+                     <div style={{ 
+                       display: "grid", 
+                       gridTemplateColumns: "repeat(auto-fit, minmax(100px, 1fr))",
+                       gap: "1rem",
+                       maxWidth: "600px",
+                       margin: "0 auto"
+                     }} className="feedback-grid">
+                       {[
+                         { emoji: "👍", feedback: "helpful", label: "Yes" },
+                         { emoji: "👎", feedback: "not_helpful", label: "No" },
+                         { emoji: "🤷", feedback: "unsure", label: "Unsure" },
+                         { emoji: "⏭️", feedback: "skip", label: "Skip" }
+                       ].map((feedbackOption) => (
+                         <button
+                           key={feedbackOption.feedback}
+                           onClick={() => handleFeedbackSubmission(feedbackOption.feedback)}
+                           className="feedback-button"
+                           style={{
+                             padding: "1rem",
+                             background: "white",
+                             border: "2px solid #e5e7eb",
+                             borderRadius: "12px",
+                             fontSize: "2rem",
+                             cursor: "pointer",
+                             transition: "all 0.2s ease",
+                             display: "flex",
+                             flexDirection: "column",
+                             alignItems: "center",
+                             gap: "0.5rem"
+                           }}
+                           onMouseEnter={(e) => {
+                             e.target.style.borderColor = "#667eea";
+                             e.target.style.transform = "translateY(-2px)";
+                           }}
+                           onMouseLeave={(e) => {
+                             e.target.style.borderColor = "#e5e7eb";
+                             e.target.style.transform = "translateY(0)";
+                           }}
+                         >
+                           <span>{feedbackOption.emoji}</span>
+                           <span style={{ 
+                             fontSize: "0.875rem", 
+                             color: "#6b7280",
+                             fontWeight: "500"
+                           }} className="feedback-label">
+                             {feedbackOption.label}
+                           </span>
+                         </button>
+                       ))}
+                     </div>
+                   </>
+                 )}
+               </div>
+            ) : conversation.length === 0 ? (
                <div style={{ 
                  textAlign: "center", 
                  color: "#6b7280", 
@@ -1480,6 +1598,22 @@ export default function App() {
               }
               
                              .mood-label {
+                 font-size: 0.625rem !important;
+               }
+               
+               /* Feedback responsive styles */
+               .feedback-grid {
+                 grid-template-columns: repeat(2, 1fr) !important;
+                 gap: 0.5rem !important;
+                 max-width: 400px !important;
+               }
+               
+               .feedback-button {
+                 padding: 0.75rem !important;
+                 font-size: 1.5rem !important;
+               }
+               
+               .feedback-label {
                  font-size: 0.625rem !important;
                }
              }
