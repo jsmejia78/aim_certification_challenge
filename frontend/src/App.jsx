@@ -668,7 +668,7 @@ export default function App() {
                       </div>
                     ) : (
                       <>
-                        🗑️ <span className="button-text">Clear Chat</span>
+                        🔒 <span className="button-text">Close Session</span>
                       </>
                     )}
                   </button>
