@@ -53,9 +53,20 @@ class LangGraphAgent:
         self.MODE = MODE
         self.langchain_project_name = langchain_project_name
         
+        # Initialize mood variable
+        self.mood = None
+        
         # Setup environment and initialize immediately
         self._setup_environment()
         self._initialize_components()
+
+    def set_mood(self, mood: str):
+        """Set the current mood of the user"""
+        self.mood = mood
+        
+    def get_mood(self) -> str:
+        """Get the current mood of the user"""
+        return self.mood
 
     def _setup_environment(self):
         """Setup environment variables and validate configuration"""
@@ -77,6 +88,7 @@ class LangGraphAgent:
             self._setup_vector_stores()
             self._setup_retrievers()
             self._setup_tools()
+            self._setup_guards()
             self._setup_memory()
             self._setup_model()
             self._setup_graph()
@@ -139,6 +151,11 @@ class LangGraphAgent:
         """Setup the language model with tools"""
         self.react_model = ChatOpenAI(model="gpt-4.1-mini", temperature=0.7).bind_tools(self.tool_belt)
         self.router_and_bridge_model = ChatOpenAI(model="gpt-4.1-nano", temperature=0.7)
+
+    def _setup_guards(self):
+        """Setup guards"""
+        self.guard_model = ChatOpenAI(model="gpt-4.1-nano", temperature=0.7)
+        
 
     # ----------------------------------------
     # Node Definitions
