@@ -240,62 +240,89 @@ export default function App() {
                    const newConversation = [...prev];
                    let lastMessageIndex = newConversation.length - 1;
                    
-                   // Check if we need to create the assistant message for the first time
-                   const needsAssistantMessage = lastMessageIndex < 0 || newConversation[lastMessageIndex].type !== "assistant";
+                                       // Check if we need to create a message for the first time
+                    const needsMessage = lastMessageIndex < 0 || newConversation[lastMessageIndex].type !== "assistant";
+                    
+                    if (needsMessage && (data.type === "message" || data.type === "response" || data.type === "error")) {
+                      // Create appropriate message based on type
+                      let newMsg;
+                      if (data.type === "error") {
+                        newMsg = { 
+                          type: "error", 
+                          content: data.content, 
+                          timestamp: new Date(),
+                          isStreaming: false,
+                          error: true
+                        };
+                        console.log('Created new error message'); // Debug log
+                      } else {
+                        newMsg = { 
+                          type: "assistant", 
+                          content: "", 
+                          timestamp: new Date(),
+                          context: {},
+                          isStreaming: true,
+                          tool_calls: [],
+                          metadata: null
+                        };
+                        console.log('Created new assistant message'); // Debug log
+                      }
+                      newConversation.push(newMsg);
+                      lastMessageIndex = newConversation.length - 1;
+                    }
                    
-                   if (needsAssistantMessage && (data.type === "message" || data.type === "response")) {
-                     // Create assistant message on first streaming content
-                     const assistantMsg = { 
-                       type: "assistant", 
-                       content: "", 
-                       timestamp: new Date(),
-                       context: {},
-                       isStreaming: true,
-                       tool_calls: [],
-                       metadata: null
-                     };
-                     newConversation.push(assistantMsg);
-                     lastMessageIndex = newConversation.length - 1;
-                     console.log('Created new assistant message'); // Debug log
-                   }
-                   
-                   if (lastMessageIndex >= 0 && newConversation[lastMessageIndex].type === "assistant") {
-                     const lastMessage = newConversation[lastMessageIndex];
-                     
-                     if (data.type === "message") {
-                       // Append message content
-                       newConversation[lastMessageIndex] = {
-                         ...lastMessage,
-                         content: lastMessage.content + data.content
-                       };
-                       console.log('Appended content:', data.content); // Debug log
-                     } else if (data.type === "response") {
-                       // Update response content
-                       newConversation[lastMessageIndex] = {
-                         ...lastMessage,
-                         content: data.content
-                       };
-                       console.log('Updated response content:', data.content); // Debug log
-                     } else if (data.type === "tool_call") {
-                       // Update tool calls
-                       newConversation[lastMessageIndex] = {
-                         ...lastMessage,
-                         tool_calls: data.content.tool_calls,
-                         context: { ...lastMessage.context, tool_calls: data.content.tool_calls }
-                       };
-                     } else if (data.type === "final") {
-                       // Final update with metadata
-                       newConversation[lastMessageIndex] = {
-                         ...lastMessage,
-                         isStreaming: false,
-                         metadata: data.content.metadata,
-                         tool_calls: data.content.tool_calls || []
-                       };
-                       // End streaming mode - allow user to scroll
-                       setIsStreaming(false);
-                       console.log('Final message received, streaming ended'); // Debug log
-                     }
-                   }
+                                       if (lastMessageIndex >= 0) {
+                      const lastMessage = newConversation[lastMessageIndex];
+                      
+                      if (lastMessage.type === "assistant") {
+                        // Handle assistant message updates
+                        if (data.type === "message") {
+                          // Append message content
+                          newConversation[lastMessageIndex] = {
+                            ...lastMessage,
+                            content: lastMessage.content + data.content
+                          };
+                          console.log('Appended content:', data.content); // Debug log
+                        } else if (data.type === "response") {
+                          // Update response content
+                          newConversation[lastMessageIndex] = {
+                            ...lastMessage,
+                            content: data.content
+                          };
+                          console.log('Updated response content:', data.content); // Debug log
+                        } else if (data.type === "tool_call") {
+                          // Update tool calls
+                          newConversation[lastMessageIndex] = {
+                            ...lastMessage,
+                            tool_calls: data.content.tool_calls,
+                            context: { ...lastMessage.context, tool_calls: data.content.tool_calls }
+                          };
+                        } else if (data.type === "final") {
+                          // Final update with metadata
+                          newConversation[lastMessageIndex] = {
+                            ...lastMessage,
+                            isStreaming: false,
+                            metadata: data.content.metadata,
+                            tool_calls: data.content.tool_calls || []
+                          };
+                          // End streaming mode - allow user to scroll
+                          setIsStreaming(false);
+                          console.log('Final message received, streaming ended'); // Debug log
+                        }
+                      } else if (lastMessage.type === "error") {
+                        // Handle error message updates (if any)
+                        if (data.type === "error") {
+                          // Update error content if needed
+                          newConversation[lastMessageIndex] = {
+                            ...lastMessage,
+                            content: data.content
+                          };
+                          // End streaming mode - allow user to scroll
+                          setIsStreaming(false);
+                          console.log('Error message updated:', data.content); // Debug log
+                        }
+                      }
+                    }
                    
                    return newConversation;
                  });
@@ -1286,9 +1313,13 @@ export default function App() {
                       borderRadius: "12px",
                       background: msg.type === "user" 
                         ? "linear-gradient(135deg, #667eea 0%, #764ba2 100%)"
+                        : msg.type === "error"
+                        ? "#fef2f2"
                         : "#f8fafc",
-                      color: msg.type === "user" ? "white" : "#1f2937",
-                      border: msg.type === "assistant" ? "1px solid #e5e7eb" : "none",
+                      color: msg.type === "user" ? "white" : 
+                             msg.type === "error" ? "#dc2626" : "#1f2937",
+                      border: msg.type === "assistant" ? "1px solid #e5e7eb" : 
+                              msg.type === "error" ? "1px solid #fecaca" : "none",
                       boxShadow: "0 2px 8px rgba(0,0,0,0.1)"
                     }}
                   >
@@ -1300,7 +1331,8 @@ export default function App() {
                       alignItems: "center",
                       gap: "0.5rem"
                     }}>
-                      {msg.type === "user" ? "👤 You" : "🌻 ParentALL.ai"}
+                      {msg.type === "user" ? "👤 You" : 
+                       msg.type === "error" ? "🚨 System" : "🌻 ParentALL.ai"}
                       <span>{msg.timestamp.toLocaleTimeString()}</span>
                     </div>
                     <div style={{ lineHeight: "1.6" }}>
@@ -1355,6 +1387,14 @@ export default function App() {
                         >
                           {msg.content || (msg.isStreaming ? "..." : "No response received")}
                         </ReactMarkdown>
+                      ) : msg.type === "error" ? (
+                        <div style={{ 
+                          whiteSpace: "pre-wrap",
+                          color: "#dc2626",
+                          fontWeight: "500"
+                        }}>
+                          {msg.content}
+                        </div>
                       ) : (
                         <div style={{ whiteSpace: "pre-wrap" }}>
                           {msg.content}

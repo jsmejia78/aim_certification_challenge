@@ -21,6 +21,14 @@ from retrievers import get_retrieval_chains_and_wrappers
 from vector_stores import VectorStoresManager
 from data_loader import DataLoader
 
+from guardrails.hub import (
+    RestrictToTopic,
+    DetectJailbreak, 
+    ProfanityFree,
+    GuardrailsPII
+)
+from guardrails import Guard
+
 class RetrievalEnums(Enum):
     NAIVE = "base_retrieval_chain"
     BM25 = "bm25_retrieval_chain"
@@ -231,8 +239,35 @@ class LangGraphAgent:
 
     def _setup_guards(self):
         """Setup guards"""
-        self.guard_model = ChatOpenAI(model="gpt-4.1-nano", temperature=0.7)
-        
+
+        # Topic Restriction Guard - Keep conversations focused on family
+        self.topic_guard = Guard().use(
+            RestrictToTopic(
+                valid_topics=[
+                    "parenting", "family", "children", "education", "life", "positive discipline",
+                    "greeting", "hello", "hi", "how are you", "conversation", "chat", "help",
+                    "support", "advice", "guidance", "behavior", "emotions", "feelings",
+                    "communication", "relationships", "development", "growth", "learning", "plans", "follow ups", "goals", "goals and plans"
+                ],
+                invalid_topics=["investment advice", "crypto", "gambling", "politics", "self-harm", "suicide", "medical advice", "mental health advice"],
+                disable_classifier=True,
+                disable_llm=False,
+                on_fail="filter"
+            )
+        )
+
+        self.jailbreak_guard = Guard().use(DetectJailbreak())
+        self.profanity_guard = Guard().use(
+            ProfanityFree(threshold=0.8, validation_method="sentence", on_fail="filter")
+        )
+        self.pii_guard = Guard().use(
+        GuardrailsPII(
+            entities=["CREDIT_CARD", "SSN", "PHONE_NUMBER", "EMAIL_ADDRESS"], 
+            on_fail="fix"
+            )
+        )
+
+        self.guard_list = [self.topic_guard, self.jailbreak_guard]
 
     # ----------------------------------------
     # Node Definitions
@@ -303,7 +338,16 @@ class LangGraphAgent:
     def _bridge_chat_node(self, state: AgentState):
         """Bridge chat node to bridge the chat"""
         if "CLARIFY" in state["last_router_response"]:
+            # Extract the clarifying question and clean it up
             clarifying_question = state["last_router_response"].split("::")[1]
+            
+            # Remove angle brackets if they exist
+            if clarifying_question.startswith("<") and clarifying_question.endswith(">"):
+                clarifying_question = clarifying_question[1:-1]
+            
+            # Capitalize first letter
+            clarifying_question = clarifying_question.strip().capitalize()
+            
             return {
                 "messages": [AIMessage(content=clarifying_question)],
                 "response": clarifying_question
@@ -372,10 +416,168 @@ class LangGraphAgent:
     # ----------------------------------------
     async def chat(self, user_message: str, config_thread: dict):
         """Chat loop entrypoint with streaming support"""
+
         try:
+            # ----------------------------------------
+            # Input validation guards
+            # ----------------------------------------
+            
+            # Check if user_message is provided and valid
+            if not user_message or not isinstance(user_message, str):
+                return {
+                    "type": "error",
+                    "content": "Please provide a valid message to continue our conversation.",
+                    "timestamp": str(datetime.now())
+                }
+            
+            # Check if user_message is not empty or just whitespace
+            if not user_message.strip():
+                return {
+                    "type": "error",
+                    "content": "Your message cannot be empty. Please type something to continue.",
+                    "timestamp": str(datetime.now())
+                }
+            
+            # Check if user_message is not too long (reasonable limit)
+            if len(user_message) > 5000:
+                return {
+                    "type": "error",
+                    "content": "Your message is too long. Please keep it under 5000 characters.",
+                    "timestamp": str(datetime.now())
+                }
+            
+            # Check if config_thread is provided and valid
+            if not config_thread or not isinstance(config_thread, dict):
+                return {
+                    "type": "error",
+                    "content": "Configuration error. Please try refreshing the page.",
+                    "timestamp": str(datetime.now())
+                }
+
+            # ----------------------------------------
+            # Check content guards
+            # ----------------------------------------
+
+            # Track guard validation results
+            guard_errors = []
+            
+            for guard in self.guard_list:
+                try:
+                    guard_response = guard.validate(user_message)
+                    
+                    # Debug: Print what the guard actually returned
+                    print(f"Guard {guard.__class__.__name__} response: {guard_response}")
+                    print(f"Response type: {type(guard_response)}")
+                    
+                    # Handle the actual guard response structure
+                    # Guards return ValidationOutcome objects with validation_passed attribute
+                    if hasattr(guard_response, 'validation_passed'):
+                        # This is a ValidationOutcome object
+                        passed = guard_response.validation_passed
+                        print(f"  ValidationOutcome - validation_passed: {passed}")
+                        
+                        # Get detailed error information from validation_summaries
+                        if not passed and hasattr(guard_response, 'validation_summaries'):
+                            for summary in guard_response.validation_summaries:
+                                if hasattr(summary, 'failure_reason'):
+                                    error_msg = summary.failure_reason
+                                    print(f"  Failure reason: {error_msg}")
+                                    guard_errors.append(f"Guard validation failed: {error_msg}")
+                                    break
+                            else:
+                                # No specific failure reason found
+                                guard_errors.append("Guard validation failed: Please try rephrasing your question.")
+                        elif passed:
+                            print(f"  ✓ Guard {guard.__class__.__name__} passed validation")
+                        else:
+                            guard_errors.append("Guard validation failed: Please try rephrasing your question.")
+                            
+                    elif hasattr(guard_response, 'get'):
+                        # Dictionary-like access (fallback)
+                        success = guard_response.get('success', False)
+                        status = guard_response.get('status', 'unknown')
+                        action = guard_response.get('action', 'unknown')
+                        print(f"  Dict access - success: {success}, status: {status}, action: {action}")
+                        
+                        passed = (
+                            (success and status == 'success') or 
+                            (action == 'passed') or
+                            (status == 'passed')
+                        )
+                        
+                        if not passed:
+                            error_msg = guard_response.get('error') or guard_response.get('reasons', [None])[0]
+                            if error_msg:
+                                guard_errors.append(f"Guard validation failed: {error_msg}")
+                            else:
+                                guard_errors.append("Guard validation failed: Please try rephrasing your question.")
+                        else:
+                            print(f"  ✓ Guard {guard.__class__.__name__} passed validation")
+                    else:
+                        # Fallback to attribute access
+                        success = getattr(guard_response, 'success', False)
+                        status = getattr(guard_response, 'status', 'unknown')
+                        action = getattr(guard_response, 'action', 'unknown')
+                        print(f"  Attr access - success: {success}, status: {status}, action: {action}")
+                        
+                        passed = (
+                            (success and status == 'success') or 
+                            (action == 'passed') or
+                            (status == 'passed')
+                        )
+                        
+                        if not passed:
+                            error_msg = getattr(guard_response, 'error', None) or getattr(guard_response, 'reasons', [None])[0]
+                            if error_msg:
+                                guard_errors.append(f"Guard validation failed: {error_msg}")
+                            else:
+                                guard_errors.append("Guard validation failed: Please try rephrasing your question.")
+                        else:
+                            print(f"  ✓ Guard {guard.__class__.__name__} passed validation")
+                    
+                    print(f"  Final guard passed: {passed}")
+                        
+                except Exception as guard_error:
+                    print(f"Guard validation error: {str(guard_error)}")
+                    guard_errors.append("Guard validation error: Please try again.")
+            
+            # If any guards failed, we'll handle it in the stream_response function
+            if guard_errors:
+                print(f"Guard validation errors: {guard_errors}")
+                
+                # Create a copy of guard errors to ensure they're preserved
+                final_guard_errors = guard_errors.copy()
+                print(f"Final guard errors (copy): {final_guard_errors}")
+            else:
+                # Initialize empty list if no guard errors
+                final_guard_errors = []
+                print(f"No guard errors, final_guard_errors initialized as empty: {final_guard_errors}")
+
+            # ----------------------------------------
+            # Chat actions and stream response
+            # ----------------------------------------
+
+            # Track component initialization errors
+            component_errors = []
+            
+            # Guard: Check if required components are initialized
+            if not hasattr(self, 'react_model') or not self.react_model:
+                component_errors.append("Language model is not available. Please try again later.")
+            
+            if not hasattr(self, 'retrival_chain') or not self.retrival_chain:
+                component_errors.append("Knowledge base is not available. Please try again later.")
+            
+            # Guard: Check if memory system is initialized
+            if not hasattr(self, 'memory') or not self.memory:
+                component_errors.append("Memory system is not available. Please try again later.")
+
             # Create user message
-            sys_msg = SystemMessage(content=self.generate_family_system_prompt())
-            user_msg = HumanMessage(content=user_message)
+            try:
+                sys_msg = SystemMessage(content=self.generate_family_system_prompt())
+                user_msg = HumanMessage(content=user_message)
+            except Exception as e:
+                print(f"Error creating system message: {str(e)}")
+                component_errors.append("Failed to initialize conversation. Please try again.")
 
             # Always include the user message in inputs
             # LangGraph will handle conversation state through checkpointing
@@ -394,11 +596,45 @@ class LangGraphAgent:
                 last_router_response = ""
 
                 try:
+                    # Debug: Check what guard_errors contains
+                    print(f"🔍 stream_response: guard_errors = {guard_errors}")
+                    print(f"🔍 stream_response: len(guard_errors) = {len(guard_errors)}")
+                    print(f"🔍 stream_response: guard_errors type = {type(guard_errors)}")
+                    
+                    # Check if guards failed validation
+                    if final_guard_errors:
+                        error_response = {
+                            "type": "error",
+                            "content": f"I'm sorry, but I can't help with that request. {'; '.join(final_guard_errors)}",
+                            "timestamp": str(datetime.now())
+                        }
+                        print(f"🚨 Yielding error response: {error_response}")
+                        yield error_response
+                        return
+                    
+                    # Check if components failed initialization
+                    if component_errors:
+                        yield {
+                            "type": "error",
+                            "content": f"System error: {'; '.join(component_errors)}",
+                            "timestamp": str(datetime.now())
+                        }
+                        return
+                    
                     print(f"Starting stream_response with inputs: {inputs}")
                     print(f"Config thread: {config_thread}")
-                    if self.agent_graph:
-                        print("Agent graph exists, starting astream...")
-                        async for chunk in self.agent_graph.astream(inputs, stream_mode="updates", config=config_thread):
+                    
+                    # Guard: Check if agent_graph exists
+                    if not self.agent_graph:
+                        yield {
+                            "type": "error",
+                            "content": "Agent system is not properly initialized. Please try again later.",
+                            "timestamp": str(datetime.now())
+                        }
+                        return
+                    
+                    print("Agent graph exists, starting astream...")
+                    async for chunk in self.agent_graph.astream(inputs, stream_mode="updates", config=config_thread):
                             for node, values in chunk.items():
                                 # Only stream content from the "agent" node (LLM responses)
                                 # Don't stream prefetch content or tool results
@@ -421,8 +657,8 @@ class LangGraphAgent:
                                                 }
                                             }
                                 
-                                # Stream the final response only from agent node
-                                if node == "agent" and "response" in values:
+                                # Stream the final response from agent node or bridge_chat node
+                                if (node == "agent" or node == "bridge_chat") and "response" in values:
                                     final_response = values["response"]
                                     # Stream the response
                                     if final_response:
@@ -481,17 +717,35 @@ class LangGraphAgent:
                     }
                 except Exception as e:
                     print(f"Error in stream_response: {str(e)}")
-                    # Return error response
+                    # Return error response with more user-friendly message
+                    error_content = "I encountered an issue while processing your request. "
+                    
+                    # Provide specific error messages for common issues
+                    if "rate limit" in str(e).lower() or "quota" in str(e).lower():
+                        error_content += "The service is currently busy. Please try again in a moment."
+                    elif "timeout" in str(e).lower():
+                        error_content += "The request took too long to process. Please try again."
+                    elif "network" in str(e).lower() or "connection" in str(e).lower():
+                        error_content += "There was a network issue. Please check your connection and try again."
+                    else:
+                        error_content += "Please try again or rephrase your question."
+                    
                     yield {
                         "type": "error",
-                        "content": f"An error occurred while processing your request: {str(e)}",
+                        "content": error_content,
                         "timestamp": str(datetime.now())
                     }
 
             return stream_response()
 
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to generate response: {str(e)}")
+            print(f"Critical error in chat function: {str(e)}")
+            # Return error response instead of raising HTTPException for better user experience
+            return {
+                "type": "error",
+                "content": "I'm experiencing technical difficulties. Please try again later or contact support if the issue persists.",
+                "timestamp": str(datetime.now())
+            }
 
     def reset_longer_term_memory(self):
         """Reset the agent's memory"""

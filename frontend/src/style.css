@@ -129,6 +129,34 @@ button:disabled {
   box-sizing: border-box;
 }
 
+/* Error message styling */
+.error-message {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  padding: 1rem;
+  margin: 0.5rem 0;
+  color: #dc2626;
+  font-weight: 500;
+  box-shadow: 0 2px 4px rgba(220, 38, 38, 0.1);
+}
+
+.error-message::before {
+  content: "⚠️ ";
+  margin-right: 0.5rem;
+}
+
+/* Error message in chat */
+.chat-messages .message.error {
+  background: #fef2f2;
+  border-left: 4px solid #dc2626;
+  color: #dc2626;
+}
+
+.chat-messages .message.error .message-content {
+  color: #dc2626;
+}
+
 /* Improve text readability on mobile */
 @media (max-width: 480px) {
   body {

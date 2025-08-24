@@ -89,6 +89,7 @@ async def chat(request: ChatRequest):
         # Create a streaming response
         async def generate():
             async for chunk in stream_generator:
+                print(f"📤 Streaming chunk: {chunk}")
                 yield f"data: {json.dumps(chunk)}\n\n"
         
         return StreamingResponse(
